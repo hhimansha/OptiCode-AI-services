@@ -6,7 +6,7 @@ import joblib
 
 app = FastAPI()
 
-# ✅ ADD THIS BLOCK
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
