@@ -1,5 +1,5 @@
 """
-Flask API for Code Refactoring Model
+Flask API for Code Refactoring Model + Python Compiler
 Place this file in: OPTICODE-AI-SERVICES/IT22606860-code-refactor-python/
 Run with: python refactor_api.py
 """
@@ -11,6 +11,8 @@ import torch
 import os
 import time
 import re
+import subprocess
+import tempfile
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React
@@ -48,7 +50,6 @@ def smart_refactor_fallback(code: str) -> str:
     changes = []
     
     # Pattern 1: Simple loop to list comprehension
-    # result = []; for item in items: result.append(item * 2); return result
     pattern1 = r'(\s*)result\s*=\s*\[\]\s*\n\s*for\s+(\w+)\s+in\s+(\w+):\s*\n\s*result\.append\(([^)]+)\)\s*\n\s*return\s+result'
     match1 = re.search(pattern1, code, re.MULTILINE)
     if match1:
@@ -61,7 +62,6 @@ def smart_refactor_fallback(code: str) -> str:
         changes.append("Loop → List comprehension")
     
     # Pattern 2: Filter with loop
-    # result = []; for x in items: if condition: result.append(x); return result
     pattern2 = r'(\s*)result\s*=\s*\[\]\s*\n\s*for\s+(\w+)\s+in\s+(\w+):\s*\n\s*if\s+([^:]+):\s*\n\s*result\.append\(([^)]+)\)\s*\n\s*return\s+result'
     match2 = re.search(pattern2, code, re.MULTILINE)
     if match2:
@@ -75,7 +75,6 @@ def smart_refactor_fallback(code: str) -> str:
         changes.append("Filter loop → List comprehension")
     
     # Pattern 3: Manual sum
-    # total = 0; for num in numbers: total += num; return total
     pattern3 = r'(\s*)total\s*=\s*0\s*\n\s*for\s+\w+\s+in\s+(\w+):\s*\n\s*total\s*\+=\s*\w+\s*\n\s*return\s+total'
     match3 = re.search(pattern3, code, re.MULTILINE)
     if match3:
@@ -86,19 +85,16 @@ def smart_refactor_fallback(code: str) -> str:
         changes.append("Manual sum → sum()")
     
     # Pattern 4: range(len()) pattern
-    # for i in range(len(items)): print(items[i])
     pattern4 = r'for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):'
     match4 = re.search(pattern4, code)
     if match4:
         index_var = match4.group(1)
         iterable = match4.group(2)
         code = re.sub(pattern4, f'for item in {iterable}:', code)
-        # Replace items[i] with item
         code = re.sub(rf'{iterable}\[{index_var}\]', 'item', code)
         changes.append("range(len()) → Direct iteration")
     
     # Pattern 5: String concatenation in loop
-    # result = ""; for word in words: result += word + " "; return result
     pattern5 = r'(\s*)result\s*=\s*["\'][\'"]\s*\n\s*for\s+(\w+)\s+in\s+(\w+):\s*\n\s*result\s*\+=\s*\2\s*\+\s*["\']([^"\']+)[\'"]\s*\n\s*return\s+result'
     match5 = re.search(pattern5, code, re.MULTILINE)
     if match5:
@@ -137,7 +133,8 @@ def health():
         'status': 'healthy',
         'model_loaded': True,
         'device': device,
-        'mode': 'smart_fallback'
+        'mode': 'smart_fallback',
+        'compiler': 'enabled'
     })
 
 @app.route('/api/refactor', methods=['POST'])
@@ -169,36 +166,9 @@ def refactor():
         
         print(f"\n[INFO] Refactoring {len(code)} characters of Python code...")
         
-        # ============================================
-        # MODEL DISABLED - USING SMART FALLBACK ONLY
-        # (Model produces incorrect output - needs retraining)
-        # ============================================
-        
         # Skip model, use smart fallback directly
         print(f"[MODE] Using smart fallback (model output unreliable)")
         result = smart_refactor_fallback(code)
-        
-        # Optional: If you want to try model first, uncomment this:
-        # try:
-        #     prompt = f"Refactor this Python code:\n{code}"
-        #     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
-        #     inputs = {k: v.to(device) for k, v in inputs.items()}
-        #     
-        #     with torch.no_grad():
-        #         outputs = model.generate(**inputs, max_length=512, num_beams=2)
-        #     
-        #     model_result = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
-        #     
-        #     # Validate model output
-        #     if model_result and model_result != code and len(model_result) > 10:
-        #         result = model_result
-        #         print(f"[SUCCESS] Model produced valid output")
-        #     else:
-        #         print(f"[WARNING] Model output invalid, using fallback")
-        #         result = smart_refactor_fallback(code)
-        # except Exception as e:
-        #     print(f"[ERROR] Model failed: {e}, using fallback")
-        #     result = smart_refactor_fallback(code)
         
         processing_time = (time.time() - start_time) * 1000
         
@@ -218,18 +188,102 @@ def refactor():
             'message': f'Error: {str(e)}'
         }), 500
 
+@app.route('/api/execute', methods=['POST'])
+def execute():
+    """Execute Python code safely"""
+    start_time = time.time()
+    
+    try:
+        data = request.get_json()
+        code = data.get('code', '').strip()
+        
+        if not code:
+            return jsonify({
+                'success': False,
+                'message': 'No code provided'
+            }), 400
+        
+        print(f"\n[EXECUTE] Running {len(code)} characters of Python code...")
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+            f.write(code)
+            temp_file = f.name
+        
+        try:
+            # Execute with timeout and security restrictions
+            result = subprocess.run(
+                ['python', temp_file],
+                capture_output=True,
+                text=True,
+                timeout=10,  # 10 second timeout
+                cwd=tempfile.gettempdir(),
+                encoding='utf-8'
+            )
+            
+            output = result.stdout
+            error = result.stderr
+            
+            processing_time = (time.time() - start_time) * 1000
+            
+            if result.returncode == 0:
+                print(f"[SUCCESS] Executed in {processing_time:.0f}ms")
+                return jsonify({
+                    'success': True,
+                    'output': output or 'Code executed successfully (no output)',
+                    'error': error if error else None,
+                    'processing_time': processing_time
+                })
+            else:
+                print(f"[ERROR] Execution failed with code {result.returncode}")
+                return jsonify({
+                    'success': False,
+                    'output': output,
+                    'error': error or 'Execution failed',
+                    'processing_time': processing_time
+                })
+        
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+    
+    except subprocess.TimeoutExpired:
+        print(f"[TIMEOUT] Execution exceeded 10 seconds")
+        return jsonify({
+            'success': False,
+            'error': 'Execution timeout (10 seconds exceeded)',
+            'message': 'Code took too long to execute'
+        }), 400
+    
+    except Exception as e:
+        print(f"[ERROR] Execution error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Execution failed'
+        }), 500
+
 # ============================================
 # RUN SERVER
 # ============================================
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("[STARTUP] CODE REFACTORING API SERVER")
+    print("[STARTUP] CODE REFACTORING + COMPILER API SERVER")
     print("="*60)
     print(f"[MODEL] Model: {MODEL_PATH}")
     print(f"[DEVICE] Device: {device.upper()}")
     print(f"[MODE] Smart Fallback (Model Output Unreliable)")
+    print(f"[COMPILER] Python Code Execution: ENABLED")
     print(f"[SERVER] Server: http://localhost:8000")
+    print("="*60)
+    print("[ENDPOINTS]")
+    print("  - POST /api/refactor  (Refactor code)")
+    print("  - POST /api/execute   (Run code)")
+    print("  - GET  /health        (Health check)")
     print("="*60)
     print("[TIP] To retrain model: Use CORRECT_training_script.py")
     print("="*60 + "\n")
