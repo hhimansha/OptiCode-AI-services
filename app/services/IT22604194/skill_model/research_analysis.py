@@ -123,34 +123,34 @@ class ResearchBasedAnalyzer:
         # Level-appropriate research-based recommendations
         if skill_level == 'Beginner':
             recommendations.extend([
-                "🎯 Practice code tracing exercises daily (Lister et al.)",
-                "🧠 Focus on understanding how programs work, not just what they do (Soloway)",
-                "📚 Read and explain existing code before writing new code (Lister et al.)",
-                "🔍 Start with simple debugging to build mental models (Soloway)"
+                " Practice code tracing exercises daily (Lister et al.)",
+                " Focus on understanding how programs work, not just what they do (Soloway)",
+                " Read and explain existing code before writing new code (Lister et al.)",
+                " Start with simple debugging to build mental models (Soloway)"
             ])
         elif skill_level == 'Intermediate':
             recommendations.extend([
-                "🏗️ Study software design patterns and modularity (Parnas)",
-                "🔧 Practice systematic debugging approaches (Soloway)",
-                "📖 Analyze well-designed codebases to improve reading skills (Lister et al.)",
-                "🎨 Work on projects that require planning and design (Parnas)"
+                " Study software design patterns and modularity (Parnas)",
+                " Practice systematic debugging approaches (Soloway)",
+                " Analyze well-designed codebases to improve reading skills (Lister et al.)",
+                " Work on projects that require planning and design (Parnas)"
             ])
         else:  # Advanced
             recommendations.extend([
-                "🌉 Design and document software architectures (Parnas)",
-                "🔬 Analyze complex systems to understand their mechanisms (Soloway)",
-                "📝 Mentor others in code reading and comprehension (Lister et al.)",
-                "💡 Create reusable, well-documented components (Parnas)"
+                " Design and document software architectures (Parnas)",
+                " Analyze complex systems to understand their mechanisms (Soloway)",
+                " Mentor others in code reading and comprehension (Lister et al.)",
+                " Create reusable, well-documented components (Parnas)"
             ])
         
         # Add specific recommendations based on weak areas
         if category_scores.get('foundational_coding', 0) < 3.0:
-            recommendations.append("📖 Priority: Daily code reading practice - explain 1 function per day (Lister)")
+            recommendations.append(" Priority: Daily code reading practice - explain 1 function per day (Lister)")
         
         if category_scores.get('problem_solving', 0) < 3.0:
-            recommendations.append("🔧 Priority: Debugging practice - fix 1 bug in existing code daily (Soloway)")
+            recommendations.append(" Priority: Debugging practice - fix 1 bug in existing code daily (Soloway)")
         
         if category_scores.get('workflow', 0) < 3.0:
-            recommendations.append("🏗️ Priority: Design exercises - plan before coding (Parnas)")
+            recommendations.append(" Priority: Design exercises - plan before coding (Parnas)")
         
         return recommendations

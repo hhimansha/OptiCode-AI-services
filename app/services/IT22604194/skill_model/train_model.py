@@ -54,7 +54,7 @@ print("Missing values per column:")
 print(missing_values)
 
 if missing_values.sum() > 0:
-    print("⚠️  Missing values detected. Handling them...")
+    print("  Missing values detected. Handling them...")
     df = df.dropna()  # Remove rows with missing values
     print(f"Dataset shape after handling missing values: {df.shape}")
 
@@ -177,23 +177,23 @@ plt.xticks(rotation=45)
 
 plt.tight_layout()
 plt.savefig('model_analysis.png', dpi=300, bbox_inches='tight')
-print("✅ Visualizations saved as 'model_analysis.png'")
+print(" Visualizations saved as 'model_analysis.png'")
 
 # Step 12: Model validation with cross-validation
 print("\n🔍 Step 12: Performing cross-validation...")
 from sklearn.model_selection import cross_val_score
 
 cv_scores = cross_val_score(rf_model, X, y_encoded, cv=5, scoring='accuracy')
-print(f"📊 Cross-validation scores: {cv_scores}")
-print(f"📊 Mean CV accuracy: {cv_scores.mean():.3f} (+/- {cv_scores.std() * 2:.3f})")
+print(f" Cross-validation scores: {cv_scores}")
+print(f" Mean CV accuracy: {cv_scores.mean():.3f} (+/- {cv_scores.std() * 2:.3f})")
 
-print("\n🎉 Model training completed successfully!")
-print("📁 Files created:")
+print("\n Model training completed successfully!")
+print(" Files created:")
 print("   - coding_skill_classifier.pkl (trained model)")
 print("   - label_encoder.pkl (label encoder)") 
 print("   - model_analysis.png (comprehensive visualizations)")
 
-print(f"\n📊 Dataset Summary:")
+print(f"\n Dataset Summary:")
 print(f"   Total samples: {len(df)}")
 print(f"   Beginner: {skill_counts.get('Beginner', 0)}")
 print(f"   Intermediate: {skill_counts.get('Intermediate', 0)}")
