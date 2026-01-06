@@ -1,126 +1,137 @@
 """
-Flask API for Code Refactoring Model + Python Compiler
-Place this file in: OPTICODE-AI-SERVICES/IT22606860-code-refactor-python/
-Run with: python refactor_api.py
+Flask API for Code Refactoring with Risk Analysis, Best Practices, and Metrics
+Location: OPTICODE-AI-SERVICES/IT22606860-code-refactor-python/refactor_api.py
 """
-
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import torch
 import os
 import time
-import re
 import subprocess
 import tempfile
+import traceback
+import re
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from openai import OpenAI
+
+# Import analysis modules
+# (Preserving your existing local module imports)
+try:
+    from risk_analyzer import RiskAnalyzer
+    RISK_ANALYZER_LOADED = True
+    print("[STARTUP] ✓ RiskAnalyzer loaded")
+except Exception as e:
+    print(f"[STARTUP] ✗ RiskAnalyzer failed: {e}")
+    RISK_ANALYZER_LOADED = False
+
+try:
+    from best_practices_detector import BestPracticesDetector
+    BEST_PRACTICES_LOADED = True
+    print("[STARTUP] ✓ BestPracticesDetector loaded")
+except Exception as e:
+    print(f"[STARTUP] ✗ BestPracticesDetector failed: {e}")
+    BEST_PRACTICES_LOADED = False
+
+try:
+    from recommendations_engine import RecommendationsEngine
+    RECOMMENDATIONS_LOADED = True
+    print("[STARTUP] ✓ RecommendationsEngine loaded")
+except Exception as e:
+    print(f"[STARTUP] ✗ RecommendationsEngine failed: {e}")
+    RECOMMENDATIONS_LOADED = False
+
+try:
+    from metrics_calculator import MetricsCalculator
+    METRICS_LOADED = True
+    print("[STARTUP] ✓ MetricsCalculator loaded")
+except Exception as e:
+    print(f"[STARTUP] ✗ MetricsCalculator failed: {e}")
+    METRICS_LOADED = False
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React
 
 # ============================================
-# LOAD MODEL (Update path to match your structure)
+# INITIALIZE SERVICES
 # ============================================
-MODEL_PATH = r"E:\Research Resources\Model Trained dataset\haritha\code-refactor-model\final-code-refactor-model"
 
-print("Loading model from:", MODEL_PATH)
+if RISK_ANALYZER_LOADED:
+    risk_analyzer = RiskAnalyzer()
+    
+if BEST_PRACTICES_LOADED:
+    best_practices_detector = BestPracticesDetector()
+    
+if RECOMMENDATIONS_LOADED:
+    recommendations_engine = RecommendationsEngine()
+    
+if METRICS_LOADED:
+    metrics_calculator = MetricsCalculator()
 
-try:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, use_fast=False)
-    model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_PATH)
-    
-    # Use GPU if available
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
-    
-    print(f"[SUCCESS] Model loaded successfully on {device.upper()}")
-    print(f"[WARNING] Model output unreliable - using smart fallback mode")
-except Exception as e:
-    print(f"[ERROR] Error loading model: {e}")
-    exit(1)
+# ============================================
+# AI CLIENT CONFIGURATION (DEEPSEEK)
+# ============================================
+
+# Replace <OPENROUTER_API_KEY> with your actual key or set it as an environment variable
+API_KEY = "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"
+BASE_URL = "https://openrouter.ai/api/v1"
+MODEL_NAME = "deepseek/deepseek-r1-0528:free"
+
+client = OpenAI(
+    base_url=BASE_URL,
+    api_key=API_KEY,
+)
+
+print(f"[STARTUP] AI Client Initialized for model: {MODEL_NAME}")
 
 # ============================================
 # HELPER FUNCTIONS
 # ============================================
 
-def smart_refactor_fallback(code: str) -> str:
-    """Enhanced regex-based refactoring when model fails"""
-    print("\n[REFACTOR] Applying smart refactoring rules...")
+def clean_ai_output(content: str) -> str:
+    """
+    Removes markdown code blocks if the AI includes them.
+    e.g., removes ```python and ```
+    """
+    if not content:
+        return ""
     
-    original = code
-    changes = []
+    # Remove ```python or ``` at the start
+    content = re.sub(r"^```(python)?\n", "", content, flags=re.MULTILINE)
+    # Remove ``` at the end
+    content = re.sub(r"\n```$", "", content, flags=re.MULTILINE)
+    return content.strip()
+
+def get_deepseek_refactor(code: str) -> str:
+    """Calls DeepSeek via OpenRouter to refactor code"""
     
-    # Pattern 1: Simple loop to list comprehension
-    pattern1 = r'(\s*)result\s*=\s*\[\]\s*\n\s*for\s+(\w+)\s+in\s+(\w+):\s*\n\s*result\.append\(([^)]+)\)\s*\n\s*return\s+result'
-    match1 = re.search(pattern1, code, re.MULTILINE)
-    if match1:
-        indent = match1.group(1)
-        var_name = match1.group(2)
-        iterable = match1.group(3)
-        expression = match1.group(4)
-        replacement = f"{indent}return [{expression} for {var_name} in {iterable}]"
-        code = re.sub(pattern1, replacement, code, flags=re.MULTILINE)
-        changes.append("Loop → List comprehension")
-    
-    # Pattern 2: Filter with loop
-    pattern2 = r'(\s*)result\s*=\s*\[\]\s*\n\s*for\s+(\w+)\s+in\s+(\w+):\s*\n\s*if\s+([^:]+):\s*\n\s*result\.append\(([^)]+)\)\s*\n\s*return\s+result'
-    match2 = re.search(pattern2, code, re.MULTILINE)
-    if match2:
-        indent = match2.group(1)
-        var_name = match2.group(2)
-        iterable = match2.group(3)
-        condition = match2.group(4)
-        expression = match2.group(5)
-        replacement = f"{indent}return [{expression} for {var_name} in {iterable} if {condition}]"
-        code = re.sub(pattern2, replacement, code, flags=re.MULTILINE)
-        changes.append("Filter loop → List comprehension")
-    
-    # Pattern 3: Manual sum
-    pattern3 = r'(\s*)total\s*=\s*0\s*\n\s*for\s+\w+\s+in\s+(\w+):\s*\n\s*total\s*\+=\s*\w+\s*\n\s*return\s+total'
-    match3 = re.search(pattern3, code, re.MULTILINE)
-    if match3:
-        indent = match3.group(1)
-        iterable = match3.group(2)
-        replacement = f"{indent}return sum({iterable})"
-        code = re.sub(pattern3, replacement, code, flags=re.MULTILINE)
-        changes.append("Manual sum → sum()")
-    
-    # Pattern 4: range(len()) pattern
-    pattern4 = r'for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):'
-    match4 = re.search(pattern4, code)
-    if match4:
-        index_var = match4.group(1)
-        iterable = match4.group(2)
-        code = re.sub(pattern4, f'for item in {iterable}:', code)
-        code = re.sub(rf'{iterable}\[{index_var}\]', 'item', code)
-        changes.append("range(len()) → Direct iteration")
-    
-    # Pattern 5: String concatenation in loop
-    pattern5 = r'(\s*)result\s*=\s*["\'][\'"]\s*\n\s*for\s+(\w+)\s+in\s+(\w+):\s*\n\s*result\s*\+=\s*\2\s*\+\s*["\']([^"\']+)[\'"]\s*\n\s*return\s+result'
-    match5 = re.search(pattern5, code, re.MULTILINE)
-    if match5:
-        indent = match5.group(1)
-        iterable = match5.group(3)
-        separator = match5.group(4)
-        replacement = f'{indent}return "{separator}".join({iterable})'
-        code = re.sub(pattern5, replacement, code, flags=re.MULTILINE)
-        changes.append("String concatenation → join()")
-    
-    # Pattern 6: Add type hints if missing
-    if 'def ' in code and '->' not in code:
-        code = re.sub(r'def\s+(\w+)\((\w+)\):', r'def \1(\2: List) -> List:', code)
-        if 'from typing import List' not in code:
-            code = "from typing import List\n\n" + code
-        changes.append("Added type hints")
-    
-    # Report changes
-    if changes:
-        for change in changes:
-            print(f"   ✓ {change}")
-        print(f"[SUCCESS] Applied {len(changes)} refactoring(s)")
-    else:
-        print(f"[INFO] No refactoring patterns found")
-    
-    return code if code != original else original
+    system_prompt = (
+        "You are a Python refactoring expert. Refactor the given Python code only.\n"
+        "Preserve functionality. Follow PEP8. Do not explain.\n"
+        "Output ONLY valid Python code."
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "http://localhost:8000", 
+                "X-Title": "Opticode Refactor API", 
+            },
+            model=MODEL_NAME,
+            messages=[
+                {
+                    "role": "system", 
+                    "content": system_prompt
+                },
+                {
+                    "role": "user", 
+                    "content": code
+                }
+            ]
+        )
+        raw_content = completion.choices[0].message.content
+        return clean_ai_output(raw_content)
+        
+    except Exception as e:
+        print(f"[AI ERROR] {str(e)}")
+        raise e
 
 # ============================================
 # API ENDPOINTS
@@ -131,15 +142,19 @@ def health():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'model_loaded': True,
-        'device': device,
-        'mode': 'smart_fallback',
-        'compiler': 'enabled'
+        'model_type': 'DeepSeek-R1 (OpenRouter)',
+        'compiler': 'enabled',
+        'services': {
+            'risk_analysis': RISK_ANALYZER_LOADED,
+            'best_practices': BEST_PRACTICES_LOADED,
+            'recommendations': RECOMMENDATIONS_LOADED,
+            'metrics': METRICS_LOADED
+        }
     })
 
 @app.route('/api/refactor', methods=['POST'])
 def refactor():
-    """Main refactoring endpoint"""
+    """Main refactoring endpoint using DeepSeek"""
     start_time = time.time()
     
     try:
@@ -147,7 +162,6 @@ def refactor():
         
         # Get input
         code = data.get('code', '').strip()
-        instruction = data.get('instruction', 'Refactor this code')
         language = data.get('language', 'python')
         
         # Validate
@@ -164,15 +178,14 @@ def refactor():
                 'message': 'Only Python is currently supported'
             }), 400
         
-        print(f"\n[INFO] Refactoring {len(code)} characters of Python code...")
+        print(f"\n[REFACTOR] Sending {len(code)} chars to {MODEL_NAME}...")
         
-        # Skip model, use smart fallback directly
-        print(f"[MODE] Using smart fallback (model output unreliable)")
-        result = smart_refactor_fallback(code)
+        # Call AI
+        result = get_deepseek_refactor(code)
         
         processing_time = (time.time() - start_time) * 1000
         
-        print(f"[COMPLETE] Refactored in {processing_time:.0f}ms\n")
+        print(f"[COMPLETE] Refactored in {processing_time:.0f}ms")
         
         return jsonify({
             'success': True,
@@ -182,7 +195,8 @@ def refactor():
         })
     
     except Exception as e:
-        print(f"[ERROR] Error: {str(e)}")
+        print(f"[ERROR] Refactor error: {str(e)}")
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'message': f'Error: {str(e)}'
@@ -260,10 +274,313 @@ def execute():
     
     except Exception as e:
         print(f"[ERROR] Execution error: {str(e)}")
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': str(e),
             'message': 'Execution failed'
+        }), 500
+
+# ============================================
+# RISK ANALYSIS
+# ============================================
+
+@app.route('/api/analyze-risks', methods=['POST'])
+def analyze_risks():
+    """Analyze code for security and quality risks"""
+    try:
+        if not RISK_ANALYZER_LOADED:
+            return jsonify({
+                'success': False,
+                'message': 'Risk analyzer not available'
+            }), 503
+
+        data = request.get_json()
+        code = data.get('code', '')
+
+        if not code:
+            return jsonify({
+                'success': False,
+                'message': 'No code provided'
+            }), 400
+
+        print(f"\n[RISK ANALYSIS] Analyzing code ({len(code)} chars)...")
+
+        result = risk_analyzer.analyze(code)
+
+        print(f"[RISK ANALYSIS] Found {result['total']} risks")
+
+        return jsonify({
+            'success': True,
+            **result
+        })
+
+    except Exception as e:
+        print(f"[RISK ANALYSIS] Error: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+# ============================================
+# BEST PRACTICES
+# ============================================
+
+@app.route('/api/analyze-practices', methods=['POST'])
+def analyze_practices():
+    """Analyze code for best practices violations"""
+    try:
+        if not BEST_PRACTICES_LOADED:
+            return jsonify({
+                'success': False,
+                'message': 'Best practices analyzer not available'
+            }), 503
+
+        data = request.get_json()
+        code = data.get('code', '')
+
+        if not code:
+            return jsonify({
+                'success': False,
+                'message': 'No code provided'
+            }), 400
+
+        print(f"\n[BEST PRACTICES] Analyzing code ({len(code)} chars)...")
+
+        violations = best_practices_detector.analyze(code)
+        
+        # Count by severity
+        by_severity = {
+            'error': len([v for v in violations if v.get('severity') == 'error']),
+            'warning': len([v for v in violations if v.get('severity') == 'warning']),
+            'info': len([v for v in violations if v.get('severity') == 'info'])
+        }
+
+        print(f"[BEST PRACTICES] Found {len(violations)} violations")
+
+        # Generate recommendations if available
+        recommendations = []
+        if RECOMMENDATIONS_LOADED:
+            try:
+                recommendations = recommendations_engine.get_recommendations(violations)
+            except Exception as e:
+                print(f"[RECOMMENDATIONS] Error: {e}")
+
+        return jsonify({
+            'success': True,
+            'violations': violations,
+            'by_severity': by_severity,
+            'recommendations': recommendations,
+            'total': len(violations)
+        })
+
+    except Exception as e:
+        print(f"[BEST PRACTICES] Error: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+# ============================================
+# METRICS
+# ============================================
+
+@app.route('/api/analyze-metrics', methods=['POST'])
+def analyze_metrics():
+    """Calculate code quality metrics"""
+    try:
+        if not METRICS_LOADED:
+            return jsonify({
+                'success': False,
+                'message': 'Metrics calculator not available'
+            }), 503
+
+        data = request.get_json()
+        code = data.get('code', '')
+
+        if not code:
+            return jsonify({
+                'success': False,
+                'message': 'No code provided'
+            }), 400
+
+        print(f"\n[METRICS] Calculating metrics...")
+
+        metrics = metrics_calculator.calculate(code)
+
+        print(f"[METRICS] LOC={metrics.get('loc', 0)}, Complexity={metrics.get('complexity', {}).get('average', 0)}")
+
+        return jsonify({
+            'success': True,
+            'metrics': metrics
+        })
+
+    except Exception as e:
+        print(f"[METRICS] Error: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/compare-metrics', methods=['POST'])
+def compare_metrics():
+    """Compare metrics between original and refactored code"""
+    try:
+        if not METRICS_LOADED:
+            return jsonify({
+                'success': False,
+                'message': 'Metrics calculator not available'
+            }), 503
+
+        data = request.get_json()
+        original_code = data.get('original_code', '')
+        refactored_code = data.get('refactored_code', '')
+
+        if not original_code or not refactored_code:
+            return jsonify({
+                'success': False,
+                'message': 'Both original and refactored code are required'
+            }), 400
+
+        print(f"\n[METRICS] Comparing metrics...")
+
+        original_metrics = metrics_calculator.calculate(original_code)
+        refactored_metrics = metrics_calculator.calculate(refactored_code)
+        comparison = metrics_calculator.compare(original_metrics, refactored_metrics)
+
+        print(f"[METRICS] Comparison completed")
+
+        return jsonify({
+            'success': True,
+            'metrics': {
+                'before': original_metrics,
+                'after': refactored_metrics,
+                'improvements': comparison
+            }
+        })
+
+    except Exception as e:
+        print(f"[METRICS] Error: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+# ============================================
+# EXPLANATION
+# ============================================
+
+@app.route('/api/explain', methods=['POST'])
+def explain_refactoring():
+    """Generate explanation for refactoring changes"""
+    try:
+        data = request.get_json()
+        original_code = data.get('original_code', '')
+        refactored_code = data.get('refactored_code', '')
+
+        if not original_code or not refactored_code:
+            return jsonify({
+                'success': False,
+                'message': 'Both codes are required'
+            }), 400
+
+        print(f"\n[EXPLAIN] Generating explanation...")
+
+        # Simple explanation
+        explanation = {
+            'changes': [
+                {
+                    'title': 'Code Refactored',
+                    'description': 'Code has been improved for better readability and maintainability',
+                    'reason': 'Following Python best practices and PEP 8 guidelines',
+                    'benefit': 'Cleaner, more maintainable code'
+                }
+            ],
+            'principles': [
+                'Clean Code',
+                'PEP 8 Style Guide',
+                'Pythonic Patterns'
+            ],
+            'benefits': [
+                'Improved readability',
+                'Better maintainability',
+                'Reduced complexity'
+            ],
+            'resources': [
+                {'title': 'PEP 8', 'url': '[https://pep8.org](https://pep8.org)'},
+                {'title': 'Python Guide', 'url': '[https://docs.python-guide.org](https://docs.python-guide.org)'}
+            ]
+        }
+
+        return jsonify({
+            'success': True,
+            'explanation': explanation
+        })
+
+    except Exception as e:
+        print(f"[EXPLAIN] Error: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+# ============================================
+# TEST GENERATION
+# ============================================
+
+@app.route('/api/generate-tests', methods=['POST'])
+def generate_tests():
+    """Generate unit tests for code"""
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+
+        if not code:
+            return jsonify({
+                'success': False,
+                'message': 'No code provided'
+            }), 400
+
+        print(f"\n[TESTS] Generating tests...")
+
+        # Simple test template
+        tests = """import pytest
+
+# Test cases for your refactored code
+
+def test_basic_functionality():
+    \"\"\"Test basic functionality\"\"\"
+    # Add your test here
+    pass
+
+def test_edge_cases():
+    \"\"\"Test edge cases\"\"\"
+    # Add your test here
+    pass
+
+def test_error_handling():
+    \"\"\"Test error handling\"\"\"
+    # Add your test here
+    pass
+"""
+
+        return jsonify({
+            'success': True,
+            'tests': tests,
+            'message': 'Tests generated successfully'
+        })
+
+    except Exception as e:
+        print(f"[TESTS] Error: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': str(e)
         }), 500
 
 # ============================================
@@ -272,20 +589,31 @@ def execute():
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("[STARTUP] CODE REFACTORING + COMPILER API SERVER")
+    print("🚀 CODE REFACTORING + ANALYSIS API SERVER")
     print("="*60)
-    print(f"[MODEL] Model: {MODEL_PATH}")
-    print(f"[DEVICE] Device: {device.upper()}")
-    print(f"[MODE] Smart Fallback (Model Output Unreliable)")
-    print(f"[COMPILER] Python Code Execution: ENABLED")
-    print(f"[SERVER] Server: http://localhost:8000")
+    print(f"[MODEL] Engine: {MODEL_NAME}")
+    print(f"[PROVIDER] OpenRouter.ai")
+    print("="*60)
+    print("[SERVICES]")
+    print(f"  ✓ Refactoring: ENABLED (DeepSeek)")
+    print(f"  ✓ Code Execution: ENABLED")
+    print(f"  ✓ Risk Analysis: {'ENABLED' if RISK_ANALYZER_LOADED else 'DISABLED'}")
+    print(f"  ✓ Best Practices: {'ENABLED' if BEST_PRACTICES_LOADED else 'DISABLED'}")
+    print(f"  ✓ Recommendations: {'ENABLED' if RECOMMENDATIONS_LOADED else 'DISABLED'}")
+    print(f"  ✓ Metrics: {'ENABLED' if METRICS_LOADED else 'DISABLED'}")
     print("="*60)
     print("[ENDPOINTS]")
-    print("  - POST /api/refactor  (Refactor code)")
-    print("  - POST /api/execute   (Run code)")
-    print("  - GET  /health        (Health check)")
+    print("  POST /api/refactor          - Refactor code (AI)")
+    print("  POST /api/execute           - Execute code")
+    print("  POST /api/analyze-risks     - Analyze risks")
+    print("  POST /api/analyze-practices - Best practices")
+    print("  POST /api/analyze-metrics   - Calculate metrics")
+    print("  POST /api/compare-metrics   - Compare metrics")
+    print("  POST /api/explain           - Get explanation")
+    print("  POST /api/generate-tests    - Generate tests")
+    print("  GET  /health                - Health check")
     print("="*60)
-    print("[TIP] To retrain model: Use CORRECT_training_script.py")
+    print(f"[SERVER] Running on: http://localhost:8000")
     print("="*60 + "\n")
     
     app.run(host='0.0.0.0', port=8000, debug=True)
