@@ -1,0 +1,21 @@
+# Existing packages
+Flask==3.0.0
+flask-cors==4.0.0
+transformers==4.35.0
+torch==2.1.0
+sentencepiece==0.1.99
+
+# NEW - Code Analysis Tools
+bandit==1.7.5           # Security scanner
+radon==6.0.1            # Complexity metrics
+pylint==3.0.3           # Code quality checker
+vulture==2.10           # Dead code detector
+autopep8==2.0.4         # Auto-formatter
+
+# NEW - Testing
+pytest==7.4.3           # Test framework
+pytest-cov==4.1.0       # Coverage reporting
+
+# NEW - Database & Utilities
+sqlalchemy==2.0.23      # Database ORM
+python-dotenv==1.0.0    # Environment variables
