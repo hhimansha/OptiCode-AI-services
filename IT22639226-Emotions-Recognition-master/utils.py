@@ -1,9 +1,4 @@
-"""
-Author: Amr Elsersy
-email: amrelsersay@gmail.com
------------------------------------------------------------------------------------
-Description: utils functions
-"""
+
 import numpy as np
 import seaborn as sn
 import matplotlib.pyplot as plt
