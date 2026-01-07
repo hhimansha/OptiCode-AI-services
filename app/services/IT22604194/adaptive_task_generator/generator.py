@@ -67,7 +67,7 @@ def generate_task(prompt: str) -> str:
         return "Write a Python function that returns the sum of two numbers."
 
     try:
-        # ✅ IMPORTANT: use the Gemini model name exactly like this
+        # IMPORTANT: use the Gemini model name exactly like this
         model = gen.GenerativeModel("models/gemini-2.0-flash-001")
 
         response = model.generate_content(
@@ -84,5 +84,5 @@ def generate_task(prompt: str) -> str:
         return text
 
     except Exception as e:
-        print("❌ Gemini error, using fallback:", e)
+        print(" Gemini error, using fallback:", e)
         return "Write a Python function that returns the sum of two numbers."

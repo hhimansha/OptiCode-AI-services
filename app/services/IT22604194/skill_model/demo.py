@@ -8,12 +8,12 @@ def display_enhanced_results(prediction: Dict):
     print("="*70)
     
     # Original results
-    print(f"📊 OVERALL ASSESSMENT:")
+    print(f" OVERALL ASSESSMENT:")
     print(f"  Skill Level: {prediction['skill_level']}")
     print(f"  Confidence: {prediction['confidence']}")
     print(f"  Overall Score: {prediction['category_scores']['average_score']}/5.0")
     
-    print(f"\n📈 CATEGORY SCORES:")
+    print(f"\n CATEGORY SCORES:")
     for category, score in prediction['category_scores'].items():
         if category != 'average_score':
             stars = "★" * int(score)
@@ -23,10 +23,10 @@ def display_enhanced_results(prediction: Dict):
     # Research-based insights
     research = prediction.get('research_analysis', {})
     
-    print(f"\n🔬 RESEARCH-BASED INSIGHTS:")
+    print(f"\n RESEARCH-BASED INSIGHTS:")
     if research.get('research_insights'):
         for insight in research['research_insights']:
-            urgency_icon = "⚠️" if insight['urgency'] == 'improvement_needed' else "✅"
+            urgency_icon = " " if insight['urgency'] == 'improvement_needed' else ""
             print(f"  {urgency_icon} {insight['principle']}")
             print(f"     Insight: {insight['insight']}")
             print(f"     Evidence: {insight['evidence']}")
@@ -34,31 +34,31 @@ def display_enhanced_results(prediction: Dict):
     else:
         print("  No specific research insights identified")
     
-    print(f"\n🧠 COGNITIVE PATTERNS:")
+    print(f"\n COGNITIVE PATTERNS:")
     if research.get('cognitive_patterns'):
         for pattern in research['cognitive_patterns']:
-            print(f"  🔍 {pattern['pattern']}")
+            print(f"   {pattern['pattern']}")
             print(f"     Description: {pattern['description']}")
             print(f"     Research Basis: {pattern['research_basis']}")
             print(f"     Implication: {pattern['implication']}")
     else:
         print("  No distinct cognitive patterns identified")
     
-    print(f"\n🎯 RESEARCH-BASED RECOMMENDATIONS:")
+    print(f"\n RESEARCH-BASED RECOMMENDATIONS:")
     if research.get('research_recommendations'):
         for i, rec in enumerate(research['research_recommendations'], 1):
             print(f"  {i}. {rec}")
     else:
         print("  No specific recommendations available")
     
-    print(f"\n📚 RESEARCH PRINCIPLES APPLIED:")
+    print(f"\n RESEARCH PRINCIPLES APPLIED:")
     if research.get('research_principles_applied'):
         principles = research['research_principles_applied']
         print(f"  • Lister et al. - Code Reading & Comprehension")
         print(f"  • Soloway - Mental Models & Program Mechanisms") 
         print(f"  • Parnas - Modular Design & Information Hiding")
     
-    print(f"\n📊 PROBABILITY DISTRIBUTION:")
+    print(f"\n PROBABILITY DISTRIBUTION:")
     for level in ['Beginner', 'Intermediate', 'Advanced']:
         if level in prediction['probabilities']:
             print(f"  {level:<12}: {prediction['probabilities'][level]}")
@@ -72,9 +72,9 @@ def run_enhanced_demo():
     
     try:
         assessor = CodingSkillAssessor()
-        print("✅ Enhanced assessor initialized successfully!")
+        print(" Enhanced assessor initialized successfully!")
     except Exception as e:
-        print(f"❌ Failed to initialize assessor: {e}")
+        print(f" Failed to initialize assessor: {e}")
         return
     
     # Test profiles with different skill patterns
@@ -106,7 +106,7 @@ def run_enhanced_demo():
     
     for profile_name, quiz_answers in student_profiles.items():
         print(f"\n{'='*60}")
-        print(f"🧪 TESTING: {profile_name}")
+        print(f" TESTING: {profile_name}")
         print(f"{'='*60}")
         
         try:
@@ -114,10 +114,10 @@ def run_enhanced_demo():
             display_enhanced_results(prediction)
             
         except Exception as e:
-            print(f"❌ Error processing {profile_name}: {e}")
+            print(f" Error processing {profile_name}: {e}")
             continue
     
-    print("\n🎉 Enhanced demo completed successfully!")
+    print("\n Enhanced demo completed successfully!")
 
 if __name__ == "__main__":
     run_enhanced_demo()

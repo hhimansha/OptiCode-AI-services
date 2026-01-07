@@ -1,9 +1,4 @@
-"""
-Author: Amr Elsersy
-email: amrelsersay@gmail.com
------------------------------------------------------------------------------------
-Description: Testing
-"""
+
 import numpy as np 
 import argparse
 import logging

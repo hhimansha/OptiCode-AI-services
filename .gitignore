@@ -229,3 +229,5 @@ datasets/
 .ipynb
 .ipynb_checkpoints/
 
+qwen-lora-task-generator/
+
