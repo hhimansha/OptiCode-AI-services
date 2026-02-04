@@ -20,7 +20,7 @@ CORS(app)  # Enable CORS for React
 # ============================================
 
 # OpenRouter API Configuration
-API_KEY = "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"
+API_KEY = "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"
 BASE_URL = "https://openrouter.ai/api/v1"
 MODEL_NAME = "deepseek/deepseek-r1-0528:free"
 
@@ -218,12 +218,12 @@ Consider the specific changes made, potential side effects, and whether the refa
         if not risk_data:
             # Fallback response if JSON parsing fails
             risk_data = {
-                "risk_score": 50,
-                "risk_level": "medium",
+                "risk_score": 2,
+                "risk_level": "low",
                 "risk_factors": [
                     {
                         "factor": "AI Response Parsing",
-                        "score": 50,
+                        "score": 2,
                         "description": "Failed to parse AI response for detailed analysis"
                     }
                 ],

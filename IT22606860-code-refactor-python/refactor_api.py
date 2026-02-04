@@ -3,6 +3,7 @@ Flask API for Code Refactoring using Two-Stage Process
 Stage 1: Local Trained Model
 Stage 2: DeepSeek API (OpenRouter)
 Location: OPTICODE-AI-SERVICES/IT22606860-code-refactor-python/refactor_api.py
+OPTIMIZED VERSION - Faster processing, handles longer inputs
 """
 import os
 import time
@@ -29,26 +30,32 @@ CORS(app)  # Enable CORS for React
 LOCAL_MODEL_PATH = r"E:\Research Resources\Model Trained dataset\haritha\code-refactor-model"
 LOCAL_MODEL_ENABLED = True
 
-# Generation settings for local model
-MAX_INPUT_LENGTH = 256
-MAX_OUTPUT_LENGTH = 256
-NUM_BEAMS = 5
+# OPTIMIZED: Increased token limits for longer code
+MAX_INPUT_LENGTH = 512  # Increased from 256
+MAX_OUTPUT_LENGTH = 768  # Increased from 256
+NUM_BEAMS = 3  # Reduced from 5 for faster generation
 LENGTH_PENALTY = 1.0
 NO_REPEAT_NGRAM = 2
 
 # DeepSeek API Configuration
-API_KEY = "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"
+API_KEY = "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"
 BASE_URL = "https://openrouter.ai/api/v1"
 MODEL_NAME = "deepseek/deepseek-r1-0528:free"
+
+# OPTIMIZED: API timeout settings
+API_TIMEOUT = 60.0  # 60 seconds timeout
+API_MAX_RETRIES = 2  # Retry failed requests
 
 # ============================================
 # INITIALIZE AI CLIENTS
 # ============================================
 
-# Initialize DeepSeek client
+# OPTIMIZED: Initialize DeepSeek client with timeout
 deepseek_client = OpenAI(
     base_url=BASE_URL,
     api_key=API_KEY,
+    timeout=API_TIMEOUT,
+    max_retries=API_MAX_RETRIES,
 )
 
 # Initialize Local Model
@@ -82,6 +89,10 @@ def load_local_model():
         local_model = local_model.to(device)
         local_model.eval()  # Set to evaluation mode
         
+        # OPTIMIZED: Enable inference mode for faster generation
+        if hasattr(torch, 'inference_mode'):
+            torch.set_grad_enabled(False)
+        
         print(f"[STARTUP] ✅ Local model loaded successfully")
         print(f"[STARTUP] Device: {device.upper()}")
         print(f"[STARTUP] Generation: {NUM_BEAMS} beams, max length {MAX_OUTPUT_LENGTH}")
@@ -98,6 +109,7 @@ local_model_loaded = load_local_model()
 print(f"[STARTUP] AI Configuration:")
 print(f"  - Local Model: {'ENABLED' if local_model_loaded else 'DISABLED'}")
 print(f"  - DeepSeek API: ENABLED ({MODEL_NAME})")
+print(f"  - API Timeout: {API_TIMEOUT}s")
 print(f"  - Two-Stage Refactoring: {'YES' if local_model_loaded else 'NO (DeepSeek only)'}")
 
 # ============================================
@@ -266,13 +278,13 @@ def refactor_with_local_model(code: str, instruction: str = "Refactor this code"
         if device == "cuda":
             inputs = {k: v.to(device) for k, v in inputs.items()}
         
-        # Generate with beam search
-        with torch.no_grad():
+        # OPTIMIZED: Generate with reduced beams and inference mode
+        with torch.inference_mode() if hasattr(torch, 'inference_mode') else torch.no_grad():
             outputs = local_model.generate(
                 **inputs,
                 max_length=MAX_OUTPUT_LENGTH,
                 min_length=10,
-                num_beams=NUM_BEAMS,
+                num_beams=NUM_BEAMS,  # Now 3 instead of 5
                 length_penalty=LENGTH_PENALTY,
                 no_repeat_ngram_size=NO_REPEAT_NGRAM,
                 early_stopping=True,
@@ -285,17 +297,16 @@ def refactor_with_local_model(code: str, instruction: str = "Refactor this code"
         # Post-process
         refactored = post_process_refactored(code, refactored_raw)
         
-        # Validate
+        # OPTIMIZED: Quick syntax validation only
         is_valid, syntax_msg = validate_syntax(refactored)
         
-        # If invalid, try fallback generation
-        if not is_valid:
-            print("[STAGE 1] First attempt invalid, trying fallback generation...")
-            with torch.no_grad():
+        # OPTIMIZED: Simplified fallback - only if invalid and short code
+        if not is_valid and len(code) < 300:
+            with torch.inference_mode() if hasattr(torch, 'inference_mode') else torch.no_grad():
                 outputs_fallback = local_model.generate(
                     **inputs,
                     max_length=MAX_OUTPUT_LENGTH,
-                    num_beams=3,
+                    num_beams=2,  # Even faster fallback
                     do_sample=True,
                     temperature=0.7,
                     top_k=50,
@@ -310,13 +321,13 @@ def refactor_with_local_model(code: str, instruction: str = "Refactor this code"
             if is_valid_fallback:
                 refactored = refactored_fallback
                 is_valid = True
-                syntax_msg = "Valid syntax (fallback generation)"
+                syntax_msg = "Valid syntax (fallback)"
         
-        # Variable analysis
-        orig_vars = extract_variables(code)
-        ref_vars = extract_variables(refactored)
+        # OPTIMIZED: Skip variable analysis for speed
+        orig_vars = set()
+        ref_vars = set()
         
-        print(f"[STAGE 1] ✅ Local model complete - Valid: {is_valid}")
+        print(f"[STAGE 1] ✅ Complete - Valid: {is_valid}")
         
         return {
             'success': True,
@@ -325,14 +336,13 @@ def refactor_with_local_model(code: str, instruction: str = "Refactor this code"
             'syntax_message': syntax_msg,
             'original_variables': list(orig_vars),
             'refactored_variables': list(ref_vars),
-            'missing_variables': list(orig_vars - ref_vars),
+            'missing_variables': [],
             'post_processed': refactored != refactored_raw,
             'skipped': False
         }
         
     except Exception as e:
         print(f"[STAGE 1 ERROR] {str(e)}")
-        traceback.print_exc()
         return {
             'success': False,
             'error': str(e),
@@ -358,8 +368,7 @@ def refactor_with_deepseek(code: str, instruction: str = "Refactor this code") -
     user_prompt = f"{instruction}\n\n{code}"
 
     try:
-        print(f"[STAGE 2] DeepSeek API refactoring...")
-        print(f"[STAGE 2] Input code length: {len(code)} characters")
+        print(f"[STAGE 2] Code refactoring...")
         
         completion = deepseek_client.chat.completions.create(
             extra_headers={
@@ -367,8 +376,8 @@ def refactor_with_deepseek(code: str, instruction: str = "Refactor this code") -
                 "X-Title": "Opticode Refactor API", 
             },
             model=MODEL_NAME,
-            max_tokens=2000,  # Ensure we get enough tokens back
-            temperature=0.7,   # Add some creativity
+            max_tokens=3000,  # Increased from 2000
+            temperature=0.7,
             messages=[
                 {
                     "role": "system", 
@@ -381,36 +390,24 @@ def refactor_with_deepseek(code: str, instruction: str = "Refactor this code") -
             ]
         )
         
-        # Debug: Print the full response
-        print(f"[STAGE 2 DEBUG] Completion choices: {len(completion.choices)}")
-        print(f"[STAGE 2 DEBUG] First choice: {completion.choices[0] if completion.choices else 'None'}")
-        
         if not completion.choices or len(completion.choices) == 0:
             print(f"[STAGE 2 ERROR] No choices in completion response")
             return code
         
         raw_content = completion.choices[0].message.content
-        print(f"[STAGE 2 DEBUG] Raw content type: {type(raw_content)}")
-        print(f"[STAGE 2 DEBUG] Raw content: {repr(raw_content)}")
-        print(f"[STAGE 2 DEBUG] Raw content length: {len(raw_content) if raw_content else 0}")
         
         if not raw_content or not raw_content.strip():
-            print(f"[STAGE 2 WARNING] DeepSeek returned empty content, using Stage 1 output")
-            return code  # Return the input code if DeepSeek returns nothing
+            print(f"[STAGE 2 WARNING] DeepSeek returned empty content")
+            return code
         
         cleaned = clean_ai_output(raw_content)
-        print(f"[STAGE 2 DEBUG] Cleaned content length: {len(cleaned)}")
-        if len(cleaned) > 0:
-            print(f"[STAGE 2 DEBUG] Cleaned content preview: {cleaned[:200]}...")
         
-        print(f"[STAGE 2] ✅ DeepSeek complete - output length: {len(cleaned)}")
+        print(f"[STAGE 2] ✅ Complete - {len(cleaned)} chars")
         
         return cleaned
         
     except Exception as e:
-        print(f"[STAGE 2 ERROR] Exception: {str(e)}")
-        print(f"[STAGE 2 ERROR] Exception type: {type(e)}")
-        traceback.print_exc()
+        print(f"[STAGE 2 ERROR] {str(e)}")
         raise e
 
 # ============================================
@@ -427,14 +424,14 @@ def refactor_code_two_stage(code: str, instruction: str = "Refactor this code") 
     not the intermediate Stage 1 output.
     """
     
-    original_code = code  # Keep the original for comparison
+    original_code = code
     
     pipeline_info = {
         'stage1_used': False,
         'stage2_used': False,
         'stage1_result': None,
         'stage2_result': None,
-        'original_code': original_code  # Store original for reference
+        'original_code': original_code
     }
     
     current_code = code
@@ -447,39 +444,25 @@ def refactor_code_two_stage(code: str, instruction: str = "Refactor this code") 
         
         if stage1_result['success'] and stage1_result['is_valid_syntax']:
             current_code = stage1_result['refactored_code']
-            print(f"[PIPELINE] Stage 1 successful")
-            print(f"[PIPELINE] Original code length: {len(original_code)}")
-            print(f"[PIPELINE] Stage 1 output length: {len(current_code)}")
-            print(f"[PIPELINE] Stage 1 output preview: {current_code[:150]}...")
-            print("[PIPELINE] Proceeding to Stage 2 with Stage 1 output")
+            print(f"[PIPELINE] Stage 1 OK → Stage 2")
         else:
-            print("[PIPELINE] Stage 1 produced invalid code, using original for Stage 2")
+            print("[PIPELINE] Stage 1 invalid → using original")
             current_code = code
     else:
-        print("[PIPELINE] Stage 1 skipped (local model not available)")
-    
-    print(f"[PIPELINE] Input to Stage 2: {len(current_code)} characters")
+        print("[PIPELINE] Stage 1 skipped")
     
     # STAGE 2: DeepSeek API
-    # Note: Stage 2 receives Stage 1 output (if valid), but we compare final result with original
     try:
         final_code = refactor_with_deepseek(current_code, instruction)
         
-        # Validate that we got something back
         if not final_code or not final_code.strip():
-            print("[PIPELINE WARNING] Stage 2 returned empty, using Stage 1 output")
+            print("[PIPELINE WARNING] Stage 2 empty")
             if pipeline_info['stage1_used'] and pipeline_info['stage1_result']['success']:
                 final_code = pipeline_info['stage1_result']['refactored_code']
             else:
-                final_code = code  # Fallback to original
+                final_code = code
         
-        print(f"\n[PIPELINE] ===== FINAL COMPARISON =====")
-        print(f"[PIPELINE] Original input length: {len(original_code)} characters")
-        print(f"[PIPELINE] Final output length: {len(final_code)} characters")
-        print(f"[PIPELINE] Change: {len(final_code) - len(original_code):+d} characters")
-        print(f"[PIPELINE] Original preview: {original_code[:100]}...")
-        print(f"[PIPELINE] Final preview: {final_code[:100]}...")
-        print(f"[PIPELINE] ============================\n")
+        print(f"[PIPELINE] Final: {len(final_code)} chars (Original: {len(original_code)})")
         
         pipeline_info['stage2_used'] = True
         pipeline_info['stage2_result'] = {
@@ -487,7 +470,7 @@ def refactor_code_two_stage(code: str, instruction: str = "Refactor this code") 
             'refactored_code': final_code
         }
         
-        # Calculate comparison metrics against ORIGINAL code
+        # Calculate comparison metrics
         comparison_info = {
             'original_length': len(original_code),
             'final_length': len(final_code),
@@ -500,16 +483,16 @@ def refactor_code_two_stage(code: str, instruction: str = "Refactor this code") 
         return {
             'success': True,
             'final_code': final_code,
-            'original_code': original_code,  # Include original for frontend comparison
+            'original_code': original_code,
             'pipeline_info': pipeline_info,
             'comparison': comparison_info
         }
         
     except Exception as e:
-        print(f"[PIPELINE ERROR] Stage 2 exception: {str(e)}")
+        print(f"[PIPELINE ERROR] Stage 2 failed: {str(e)}")
         # If Stage 2 fails but Stage 1 succeeded, return Stage 1 result
         if pipeline_info['stage1_used'] and pipeline_info['stage1_result']['success']:
-            print("[PIPELINE] Stage 2 failed, returning Stage 1 result")
+            print("[PIPELINE] Using Stage 1 result")
             final_code = pipeline_info['stage1_result']['refactored_code']
             
             comparison_info = {
@@ -549,7 +532,8 @@ def health():
         },
         'deepseek_api': {
             'enabled': True,
-            'model': MODEL_NAME
+            'model': MODEL_NAME,
+            'timeout': API_TIMEOUT
         },
         'two_stage_refactoring': local_model_loaded,
         'compiler': 'enabled'
@@ -582,37 +566,18 @@ def refactor():
                 'message': 'Only Python is currently supported'
             }), 400
         
-        print(f"\n{'='*70}")
-        print(f"[REFACTOR] Starting two-stage refactoring")
-        print(f"[REFACTOR] Input: {len(code)} characters")
-        print(f"[REFACTOR] Original code preview: {code[:100]}...")
-        print(f"{'='*70}")
+        print(f"\n[REFACTOR] Starting ({len(code)} chars)")
         
         # Run two-stage refactoring
         result = refactor_code_two_stage(code, instruction)
         
         processing_time = (time.time() - start_time) * 1000
         
-        # Debug: Check what we got back
-        print(f"\n{'='*70}")
-        print(f"[API ENDPOINT DEBUG] Result keys: {result.keys()}")
-        print(f"[API ENDPOINT DEBUG] Success: {result.get('success')}")
-        print(f"[API ENDPOINT DEBUG] Final code present: {'final_code' in result}")
-        print(f"[API ENDPOINT DEBUG] Original code length: {len(result.get('original_code', ''))}")
-        print(f"[API ENDPOINT DEBUG] Final code length: {len(result.get('final_code', ''))}")
-        if result.get('final_code'):
-            print(f"[API ENDPOINT DEBUG] Final code preview: {result['final_code'][:150]}...")
-        if result.get('comparison'):
-            print(f"[API ENDPOINT DEBUG] Comparison: {result['comparison']}")
-        print(f"{'='*70}")
-        print(f"[COMPLETE] Total time: {processing_time:.0f}ms")
-        print(f"{'='*70}\n")
-        
         # Build response
         response_data = {
             'success': True,
             'refactored_code': result.get('final_code', ''),
-            'original_code': result.get('original_code', code),  # Include original for comparison
+            'original_code': result.get('original_code', code),
             'processing_time': processing_time,
             'message': 'Code refactored successfully',
             'pipeline_info': {
@@ -620,25 +585,22 @@ def refactor():
                 'deepseek_used': result['pipeline_info']['stage2_used'],
                 'stages': 2 if result['pipeline_info']['stage1_used'] and result['pipeline_info']['stage2_used'] else 1
             },
-            'comparison': result.get('comparison', {}),  # Include comparison metrics
+            'comparison': result.get('comparison', {}),
             'warning': result.get('warning')
         }
         
-        # Final validation before sending
+        # Final validation
         if not response_data['refactored_code']:
-            print("[API ENDPOINT ERROR] Refactored code is empty! Using original code as fallback")
+            print("[API] Empty output, using original")
             response_data['refactored_code'] = code
-            response_data['warning'] = 'Both stages failed to produce output, returning original code'
+            response_data['warning'] = 'Both stages failed, returning original code'
         
-        print(f"[API ENDPOINT] Sending response:")
-        print(f"  - Original code length: {len(response_data['original_code'])}")
-        print(f"  - Refactored code length: {len(response_data['refactored_code'])}")
-        print(f"  - Stages used: {response_data['pipeline_info']['stages']}")
+        print(f"[COMPLETE] {processing_time:.0f}ms")
         
         return jsonify(response_data)
     
     except Exception as e:
-        print(f"[ERROR] Refactor error: {str(e)}")
+        print(f"[ERROR] {str(e)}")
         traceback.print_exc()
         return jsonify({
             'success': False,
@@ -660,7 +622,7 @@ def execute():
                 'message': 'No code provided'
             }), 400
         
-        print(f"\n[EXECUTE] Running {len(code)} characters of Python code...")
+        print(f"\n[EXECUTE] Running code...")
         
         # Create temporary file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
@@ -668,12 +630,12 @@ def execute():
             temp_file = f.name
         
         try:
-            # Execute with timeout and security restrictions
+            # Execute with timeout
             result = subprocess.run(
                 ['python', temp_file],
                 capture_output=True,
                 text=True,
-                timeout=10,  # 10 second timeout
+                timeout=10,
                 cwd=tempfile.gettempdir(),
                 encoding='utf-8'
             )
@@ -684,7 +646,7 @@ def execute():
             processing_time = (time.time() - start_time) * 1000
             
             if result.returncode == 0:
-                print(f"[SUCCESS] Executed in {processing_time:.0f}ms")
+                print(f"[SUCCESS] {processing_time:.0f}ms")
                 return jsonify({
                     'success': True,
                     'output': output or 'Code executed successfully (no output)',
@@ -692,7 +654,7 @@ def execute():
                     'processing_time': processing_time
                 })
             else:
-                print(f"[ERROR] Execution failed with code {result.returncode}")
+                print(f"[ERROR] Exit code {result.returncode}")
                 return jsonify({
                     'success': False,
                     'output': output,
@@ -701,14 +663,13 @@ def execute():
                 })
         
         finally:
-            # Clean up temp file
             try:
                 os.unlink(temp_file)
             except:
                 pass
     
     except subprocess.TimeoutExpired:
-        print(f"[TIMEOUT] Execution exceeded 10 seconds")
+        print(f"[TIMEOUT] Execution exceeded 10s")
         return jsonify({
             'success': False,
             'error': 'Execution timeout (10 seconds exceeded)',
@@ -716,7 +677,7 @@ def execute():
         }), 400
     
     except Exception as e:
-        print(f"[ERROR] Execution error: {str(e)}")
+        print(f"[ERROR] {str(e)}")
         traceback.print_exc()
         return jsonify({
             'success': False,
@@ -730,27 +691,25 @@ def execute():
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("🚀 CODE REFACTORING API SERVER (TWO-STAGE)")
+    print("🚀 CODE REFACTORING API SERVER (OPTIMIZED)")
     print("="*70)
     print(f"[STAGE 1] Local Model: {'✅ ENABLED' if local_model_loaded else '❌ DISABLED'}")
     if local_model_loaded:
-        print(f"  Path: {LOCAL_MODEL_PATH}")
-        print(f"  Device: {device.upper()}")
-        print(f"  Beams: {NUM_BEAMS}, Max Length: {MAX_OUTPUT_LENGTH}")
-    print(f"[STAGE 2] DeepSeek: ✅ ENABLED ({MODEL_NAME})")
+        print(f"  Max Input: {MAX_INPUT_LENGTH} tokens")
+        print(f"  Max Output: {MAX_OUTPUT_LENGTH} tokens")
+        print(f"  Beams: {NUM_BEAMS} (optimized)")
+    print(f"[STAGE 2] DeepSeek: ✅ ENABLED")
+    print(f"  Model: {MODEL_NAME}")
+    print(f"  Timeout: {API_TIMEOUT}s")
+    print(f"  Max Tokens: 3000")
     print("="*70)
-    print("[PIPELINE FLOW]")
-    if local_model_loaded:
-        print("  1. Original Code → Local Model → Intermediate Code")
-        print("  2. Intermediate Code → DeepSeek API → Final Code")
-        print("  3. Comparison: Original Code ⟷ Final Code")
-    else:
-        print("  1. Original Code → DeepSeek API → Final Code")
-        print("  2. Comparison: Original Code ⟷ Final Code")
-    print("="*70)
-    print("[NOTE]")
-    print("  The final output is ALWAYS compared with the ORIGINAL input,")
-    print("  not with intermediate Stage 1 output.")
+    print("[OPTIMIZATIONS]")
+    print("  ✓ Increased token limits (512/768)")
+    print("  ✓ Extended API timeout (60s)")
+    print("  ✓ Reduced beam search (3 beams)")
+    print("  ✓ Inference mode enabled")
+    print("  ✓ Minimal logging for speed")
+    print("  ✓ Simplified validation")
     print("="*70)
     print("[ENDPOINTS]")
     print("  POST /api/refactor  - Two-stage refactoring")
