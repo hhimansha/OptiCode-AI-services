@@ -6,6 +6,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.metrics import classification_report
 import joblib
+from sklearn.metrics import accuracy_score
 
 print(" Loading dataset...")
 
@@ -81,6 +82,9 @@ print(" Training complete!")
 print("\n Evaluation Report:\n")
 
 y_pred = model.predict(X_test)
+
+exact_accuracy = accuracy_score(y_test, y_pred) * 100
+print(f"Exact Match Accuracy: {exact_accuracy:.2f}%")
 
 print(classification_report(
     y_test,
