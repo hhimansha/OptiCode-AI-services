@@ -1,19 +1,39 @@
 """
 Risk Analysis API for Code Refactoring
-Uses OpenRouter AI to analyze refactoring risks and provide detailed assessment
+Uses OpenRouter AI to analyze refactoring risks and AST for technical analysis
+Enhanced with AST-based metrics and comprehensive assessment
 """
 
 import os
 import time
 import json
 import traceback
+import ast
+from typing import Dict
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 import re
 
+# Import AST analysis modules
+try:
+    from code_analyzer import analyze_code
+    from ast_refactor import analyze_code_structure
+    AST_ANALYSIS_AVAILABLE = True
+except ImportError:
+    AST_ANALYSIS_AVAILABLE = False
+    print("[WARNING] AST analysis modules not available")
+
 app = Flask(__name__)
-CORS(app)  # Enable CORS for React
+
+# Configure CORS - Allow requests from frontend
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:5173", "http://localhost:3000", "http://localhost:5000"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 # ============================================
 # CONFIGURATION
@@ -24,15 +44,51 @@ API_KEY = "sk-or-v1-2343cabc3e62c50c3d3c2900a42a4a39aa71cd033fca29f5ba60f986edd9
 BASE_URL = "https://openrouter.ai/api/v1"
 MODEL_NAME = "deepseek/deepseek-r1-0528:free"
 
-# Initialize OpenAI client
-client = OpenAI(
-    base_url=BASE_URL,
-    api_key=API_KEY,
-)
+# API timeout settings
+API_TIMEOUT = 60.0  # 60 seconds timeout
+
+# Initialize OpenAI client (Python 3.14 compatible - no proxies parameter)
+try:
+    # Python 3.14 compatible initialization
+    from openai import DefaultHttpxClient
+    http_client = DefaultHttpxClient(timeout=API_TIMEOUT)
+    
+    client = OpenAI(
+        base_url=BASE_URL,
+        api_key=API_KEY,
+        http_client=http_client
+    )
+    print("✅ OpenAI client initialized successfully for Risk Analysis API")
+except Exception as e:
+    # Fallback for older OpenAI versions
+    try:
+        client = OpenAI(
+            base_url=BASE_URL,
+            api_key=API_KEY,
+            timeout=API_TIMEOUT
+        )
+        print("✅ OpenAI client initialized (fallback mode)")
+    except Exception as e2:
+        print(f"⚠️ OpenAI client initialization failed: {e}")
+        print("⚠️ Risk analysis features will be limited.")
+        client = None
+
+# ============================================
+# CORS PREFLIGHT SUPPORT
+# ============================================
+
+@app.after_request
+def after_request(response):
+    """Add CORS headers to all responses"""
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 # ============================================
 # HELPER FUNCTIONS
 # ============================================
+
 
 def clean_ai_output(content: str) -> str:
     """Remove markdown code blocks from AI output"""
@@ -178,6 +234,34 @@ Analyze the refactoring risk and provide a comprehensive assessment.
 Consider the specific changes made, potential side effects, and whether the refactoring follows best practices."""
 
     try:
+        if client is None:
+            comparison_metrics = calculate_comparison_metrics(original_code, refactored_code)
+            risk_data = {
+                "risk_score": 50,
+                "risk_level": "medium",
+                "risk_factors": [
+                    {
+                        "factor": "LLM Unavailable",
+                        "score": 50,
+                        "description": "LLM client not configured; using heuristic fallback"
+                    }
+                ],
+                "explanation": "LLM client is not available. Returned a fallback risk estimate.",
+                "suggestions": ["Verify refactoring manually and run tests"],
+                "potential_issues": ["LLM analysis skipped"],
+                "side_effects": ["Unknown without LLM analysis"],
+                "recommendation": "Apply with caution and thorough testing"
+            }
+
+            risk_data['risk_color'] = get_color_for_risk(risk_data.get('risk_score', 50))
+            risk_data['processing_time'] = 0
+
+            return {
+                'success': True,
+                'risk_analysis': risk_data,
+                'comparison_metrics': comparison_metrics,
+                'language': language
+            }
         print(f"[RISK ANALYSIS] Calling AI for risk assessment...")
         start_time = time.time()
         
@@ -258,7 +342,34 @@ Consider the specific changes made, potential side effects, and whether the refa
     except Exception as e:
         print(f"[RISK ANALYSIS ERROR] Exception: {str(e)}")
         traceback.print_exc()
-        raise e
+
+        comparison_metrics = calculate_comparison_metrics(original_code, refactored_code)
+        risk_data = {
+            "risk_score": 50,
+            "risk_level": "medium",
+            "risk_factors": [
+                {
+                    "factor": "LLM Error",
+                    "score": 50,
+                    "description": f"LLM request failed: {str(e)}"
+                }
+            ],
+            "explanation": "LLM request failed. Returned a fallback risk estimate.",
+            "suggestions": ["Verify refactoring manually and run tests"],
+            "potential_issues": ["LLM analysis skipped"],
+            "side_effects": ["Unknown without LLM analysis"],
+            "recommendation": "Apply with caution and thorough testing"
+        }
+
+        risk_data['risk_color'] = get_color_for_risk(risk_data.get('risk_score', 50))
+        risk_data['processing_time'] = 0
+
+        return {
+            'success': True,
+            'risk_analysis': risk_data,
+            'comparison_metrics': comparison_metrics,
+            'language': language
+        }
 
 def get_chart_data(risk_score: int, risk_factors: list) -> dict:
     """Generate chart data for visualization"""
@@ -312,7 +423,7 @@ def health():
 
 @app.route('/api/risk-analyze', methods=['POST'])
 def risk_analyze():
-    """Main risk analysis endpoint"""
+    """Enhanced risk analysis endpoint with AST-based metrics"""
     start_time = time.time()
     
     try:
@@ -322,6 +433,7 @@ def risk_analyze():
         original_code = data.get('original_code', '').strip()
         refactored_code = data.get('refactored_code', '').strip()
         language = data.get('language', 'python')
+        include_ast_analysis = data.get('include_ast_analysis', AST_ANALYSIS_AVAILABLE)
         
         # Validate
         if not original_code:
@@ -340,10 +452,39 @@ def risk_analyze():
         print(f"[RISK ANALYSIS] Starting risk analysis")
         print(f"[RISK ANALYSIS] Original: {len(original_code)} chars")
         print(f"[RISK ANALYSIS] Refactored: {len(refactored_code)} chars")
+        print(f"[RISK ANALYSIS] AST Analysis: {'Enabled' if include_ast_analysis else 'Disabled'}")
         print(f"{'='*70}")
         
-        # Perform risk analysis
+        # Perform AI-based risk analysis
         result = analyze_refactoring_risk(original_code, refactored_code, language)
+        
+        # Add AST-based technical analysis if available
+        if include_ast_analysis and AST_ANALYSIS_AVAILABLE:
+            print("[RISK ANALYSIS] Adding AST-based technical analysis...")
+            
+            try:
+                # Analyze both code versions
+                original_analysis = analyze_code(original_code)
+                refactored_analysis = analyze_code(refactored_code)
+                
+                result['technical_analysis'] = {
+                    'original': {
+                        'complexity': original_analysis.get('complexity', {}),
+                        'metrics': original_analysis.get('metrics', {}),
+                        'overall_score': original_analysis.get('overall_score', {})
+                    },
+                    'refactored': {
+                        'complexity': refactored_analysis.get('complexity', {}),
+                        'metrics': refactored_analysis.get('metrics', {}),
+                        'overall_score': refactored_analysis.get('overall_score', {})
+                    },
+                    'improvements': calculate_improvements(original_analysis, refactored_analysis)
+                }
+                
+                print("[RISK ANALYSIS] AST analysis complete")
+            except Exception as e:
+                print(f"[WARNING] AST analysis failed: {str(e)}")
+                result['technical_analysis_error'] = str(e)
         
         # Generate chart data
         risk_score = result['risk_analysis'].get('risk_score', 50)
@@ -372,6 +513,39 @@ def risk_analyze():
             'success': False,
             'message': f'Error during risk analysis: {str(e)}'
         }), 500
+
+
+def calculate_improvements(original: Dict, refactored: Dict) -> Dict:
+    """Calculate improvements between original and refactored code"""
+    
+    improvements = {}
+    
+    # Complexity improvements
+    if 'complexity' in original and 'complexity' in refactored:
+        orig_complexity = original['complexity'].get('average_complexity', 0)
+        ref_complexity = refactored['complexity'].get('average_complexity', 0)
+        
+        if orig_complexity > 0:
+            complexity_improvement = ((orig_complexity - ref_complexity) / orig_complexity) * 100
+            improvements['complexity_reduction'] = round(complexity_improvement, 2)
+    
+    # Code quality improvements
+    if 'overall_score' in original and 'overall_score' in refactored:
+        orig_score = original['overall_score'].get('score', 50)
+        ref_score = refactored['overall_score'].get('score', 50)
+        
+        improvements['quality_improvement'] = round(ref_score - orig_score, 2)
+    
+    # Lines of code change
+    if 'metrics' in original and 'metrics' in refactored:
+        orig_loc = original['metrics'].get('loc', 0)
+        ref_loc = refactored['metrics'].get('loc', 0)
+        
+        if orig_loc > 0:
+            loc_change = ((ref_loc - orig_loc) / orig_loc) * 100
+            improvements['loc_change_percent'] = round(loc_change, 2)
+    
+    return improvements
 
 # ============================================
 # RUN SERVER

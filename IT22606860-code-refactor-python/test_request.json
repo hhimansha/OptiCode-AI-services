@@ -1,0 +1,3 @@
+{
+    "code": "def calculate(x, y):\n    if x > 0:\n        if y > 0:\n            result = x + y\n            return result\n    for i in range(len([1, 2, 3, 4, 5])):\n        print(i)\n    x = 1\n    y = 2\n    z = 3\n    return x"
+}
