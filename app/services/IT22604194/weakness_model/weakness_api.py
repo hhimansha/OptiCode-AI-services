@@ -5,6 +5,9 @@ import pandas as pd
 from fastapi.middleware.cors import CORSMiddleware
 from code_executor import run_python
 
+# -----------------------------
+# FastAPI App
+# -----------------------------
 app = FastAPI(title="Weakness Detection API")
 
 app.add_middleware(
@@ -15,36 +18,85 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# -----------------------------
+# Load ML model
+# -----------------------------
 model = joblib.load("weakness_model.pkl")
 
+# -----------------------------
+# Feature names & labels
+# -----------------------------
 FEATURE_NAMES = [
-    "num_functions","num_loops","has_if","has_return","has_recursion",
-    "while_true","syntax_error","lines_of_code","avg_line_length",
-    "time_idle","edits_last_30s"
+    "num_functions",
+    "num_loops",
+    "has_if",
+    "has_return",
+    "has_recursion",
+    "while_true",
+    "syntax_error",
+    "lines_of_code",
+    "avg_line_length",
+    "time_idle",
+    "edits_last_30s"
 ]
 
 WEAKNESS_LABELS = [
-    "syntax_error","missing_base_case","infinite_loop","logic_error","idle_stuck"
+    "syntax_error",
+    "missing_base_case",
+    "infinite_loop",
+    "logic_error",
+    "idle_stuck"
 ]
 
+# -----------------------------
+# Hint rules
+# -----------------------------
 HINT_RULES = {
-    "syntax_error":{"Beginner":"Fix syntax.","Intermediate":"Review syntax.","Advanced":"Parser error."},
-    "missing_base_case":{"Beginner":"Add base case.","Intermediate":"Ensure termination.","Advanced":"Validate recursion."},
-    "infinite_loop":{"Beginner":"Add exit.","Intermediate":"Change loop.","Advanced":"Check invariant."},
-    "logic_error":{"Beginner":"Wrong output.","Intermediate":"Check logic.","Advanced":"Edge cases."},
-    "idle_stuck":{"Beginner":"Try first step.","Intermediate":"Break problem.","Advanced":"Re-evaluate."}
+    "syntax_error": {
+        "Beginner": "Fix syntax.",
+        "Intermediate": "Review syntax.",
+        "Advanced": "Parser error."
+    },
+    "missing_base_case": {
+        "Beginner": "Add base case.",
+        "Intermediate": "Ensure termination.",
+        "Advanced": "Validate recursion."
+    },
+    "infinite_loop": {
+        "Beginner": "Add exit.",
+        "Intermediate": "Change loop.",
+        "Advanced": "Check invariant."
+    },
+    "logic_error": {
+        "Beginner": "Wrong output.",
+        "Intermediate": "Check logic.",
+        "Advanced": "Edge cases."
+    },
+    "idle_stuck": {
+        "Beginner": "Try first step.",
+        "Intermediate": "Break problem.",
+        "Advanced": "Re-evaluate."
+    }
 }
 
+# -----------------------------
+# Request schema
+# -----------------------------
 class CodeInput(BaseModel):
     code_text: str
     time_since_last_keystroke_s: int
     skill_level: str
+    expected_output: str = ""  # optional
+    test_input: str = ""
 
-def extract_features(code, idle):
+# -----------------------------
+# Feature extraction
+# -----------------------------
+def extract_features(code: str, idle: int):
     lines = code.splitlines()
     n = len(lines)
 
-    f = {
+    features = {
         "num_functions": code.count("def "),
         "num_loops": code.count("for ") + code.count("while "),
         "has_if": int("if " in code),
@@ -53,57 +105,93 @@ def extract_features(code, idle):
         "while_true": int("while True" in code),
         "syntax_error": int("def" in code and ":" not in code),
         "lines_of_code": n,
-        "avg_line_length": sum(len(l) for l in lines)/max(1,n),
+        "avg_line_length": sum(len(l) for l in lines) / max(1, n),
         "time_idle": idle,
         "edits_last_30s": 0
     }
 
-    return pd.DataFrame([[f[x] for x in FEATURE_NAMES]], columns=FEATURE_NAMES)
+    return pd.DataFrame(
+        [[features[x] for x in FEATURE_NAMES]],
+        columns=FEATURE_NAMES
+    )
 
+# -----------------------------
+# MAIN ENDPOINT
+# -----------------------------
 @app.post("/predict")
 def predict_weakness(input: CodeInput):
 
-    skill = input.skill_level if input.skill_level in ["Beginner","Intermediate","Advanced"] else "Beginner"
+    # Normalize skill level
+    skill = input.skill_level if input.skill_level in [
+        "Beginner", "Intermediate", "Advanced"
+    ] else "Beginner"
 
-    X = extract_features(input.code_text,input.time_since_last_keystroke_s).astype(float)
+    # Extract ML features
+    X = extract_features(
+        input.code_text,
+        input.time_since_last_keystroke_s
+    ).astype(float)
 
+    # Model prediction
     raw = model.predict(X)[0]
-    prediction = dict(zip(WEAKNESS_LABELS,map(int,raw)))
+    prediction = dict(zip(WEAKNESS_LABELS, map(int, raw)))
 
-    # Reduce false positives
+    # Reduce false infinite loop detection
     if "break" in input.code_text:
-        prediction["infinite_loop"]=0
+        prediction["infinite_loop"] = 0
 
-    exec_result = run_python(input.code_text)
+    # Execute code
+    #exec_result = run_python(input.code_text)
+    exec_result = run_python(input.code_text, input.test_input)
 
-    # ✅ REAL correctness FIRST
-    if exec_result["error"]=="" and exec_result["output"].strip()!="":
-        # clear ML weaknesses
-        prediction = {k:0 for k in prediction}
-        return {
+
+    # ---------------- CORRECTNESS CHECK ----------------
+    # ---- CORRECTNESS CHECK ----
+    if input.expected_output:
+        if exec_result["error"] == "" and exec_result["output"].strip() == input.expected_output.strip():
+            prediction = {k: 0 for k in prediction}
+            return {
             "weaknesses": prediction,
+            "primary": None,
             "hints": ["✅ Your answer is correct!"],
             "output": exec_result["output"],
-            "error": exec_result["error"]
-        }
+            "error": ""
+            }
 
-    # idle AFTER correctness
-    if input.time_since_last_keystroke_s>=15:
-        prediction["idle_stuck"]=1
 
-    hints=[HINT_RULES[k][skill] for k,v in prediction.items() if v==1]
+    # ---------------- IDLE CHECK ----------------
+    if input.time_since_last_keystroke_s >= 15:
+        prediction["idle_stuck"] = 1
+
+    # ---------------- HINT GENERATION ----------------
+    primary = None
+    for k, v in prediction.items():
+        if v == 1:
+            primary = k
+            break
+
+    hints = []
+    if primary:
+        hints.append(HINT_RULES[primary][skill])
 
     return {
-        "weaknesses":prediction,
-        "hints":hints,
-        "output":exec_result["output"],
-        "error":exec_result["error"]
+        "weaknesses": prediction,
+        "primary": primary,
+        "hints": hints,
+        "output": exec_result["output"],
+        "error": exec_result["error"]
     }
 
+# -----------------------------
+# Execute-only endpoint
+# -----------------------------
 @app.post("/execute")
-def execute_code(input:CodeInput):
+def execute_code(input: CodeInput):
     return run_python(input.code_text)
 
+# -----------------------------
+# Health check
+# -----------------------------
 @app.get("/")
 def health():
-    return {"status":"Weakness Model API running"}
+    return {"status": "Weakness Model API running"}
