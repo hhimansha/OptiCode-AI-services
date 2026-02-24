@@ -45,7 +45,10 @@ WEAKNESS_LABELS = [
     "missing_base_case",
     "infinite_loop",
     "logic_error",
-    "idle_stuck"
+    "idle_stuck",
+    "no_function",
+    "missing_print",
+    "hardcoded_value"
 ]
 
 # -----------------------------
@@ -76,6 +79,21 @@ HINT_RULES = {
         "Beginner": "Try first step.",
         "Intermediate": "Break problem.",
         "Advanced": "Re-evaluate."
+    },
+    "no_function": {
+        "Beginner": "Try writing a function using def.",
+        "Intermediate": "Define the required function.",
+        "Advanced": "Encapsulate logic in a function."
+    },
+    "missing_print": {
+        "Beginner": "Use print() to display the result.",
+        "Intermediate": "Ensure output is printed.",
+        "Advanced": "Return or print the final result."
+    },
+    "hardcoded_value": {
+        "Beginner": "Avoid fixed values. Use the input.",
+        "Intermediate": "Compute result dynamically.",
+        "Advanced": "Do not hardcode expected output."
     }
 }
 
@@ -86,7 +104,7 @@ class CodeInput(BaseModel):
     code_text: str
     time_since_last_keystroke_s: int
     skill_level: str
-    expected_output: str = ""  # optional
+    expected_output: str = ""
     test_input: str = ""
 
 # -----------------------------
@@ -110,10 +128,7 @@ def extract_features(code: str, idle: int):
         "edits_last_30s": 0
     }
 
-    return pd.DataFrame(
-        [[features[x] for x in FEATURE_NAMES]],
-        columns=FEATURE_NAMES
-    )
+    return pd.DataFrame([[features[x] for x in FEATURE_NAMES]], columns=FEATURE_NAMES)
 
 # -----------------------------
 # MAIN ENDPOINT
@@ -121,18 +136,10 @@ def extract_features(code: str, idle: int):
 @app.post("/predict")
 def predict_weakness(input: CodeInput):
 
-    # Normalize skill level
-    skill = input.skill_level if input.skill_level in [
-        "Beginner", "Intermediate", "Advanced"
-    ] else "Beginner"
+    skill = input.skill_level if input.skill_level in ["Beginner", "Intermediate", "Advanced"] else "Beginner"
 
-    # Extract ML features
-    X = extract_features(
-        input.code_text,
-        input.time_since_last_keystroke_s
-    ).astype(float)
+    X = extract_features(input.code_text, input.time_since_last_keystroke_s).astype(float)
 
-    # Model prediction
     raw = model.predict(X)[0]
     prediction = dict(zip(WEAKNESS_LABELS, map(int, raw)))
 
@@ -141,34 +148,67 @@ def predict_weakness(input: CodeInput):
         prediction["infinite_loop"] = 0
 
     # Execute code
-    #exec_result = run_python(input.code_text)
     exec_result = run_python(input.code_text, input.test_input)
 
-
-    # ---------------- CORRECTNESS CHECK ----------------
-    # ---- CORRECTNESS CHECK ----
+    # ---------------- CORRECTNESS CHECK (FIRST!) ----------------
     if input.expected_output:
-        if exec_result["error"] == "" and exec_result["output"].strip() == input.expected_output.strip():
-            prediction = {k: 0 for k in prediction}
+        if input.expected_output and input.expected_output in input.code_text:
+            prediction["hardcoded_value"] = 1
             return {
+                "weaknesses": prediction,
+                "primary": "hardcoded_value",
+                "hints": ["Do not hardcode values. Calculate the result."],
+                "output": exec_result["output"],
+                "error": ""
+            }
+    if exec_result["error"] == "" and exec_result["output"].strip() == input.expected_output.strip():
+        prediction = {k: 0 for k in prediction}
+        return {
             "weaknesses": prediction,
             "primary": None,
             "hints": ["✅ Your answer is correct!"],
             "output": exec_result["output"],
             "error": ""
-            }
+        }
 
+        #if exec_result["error"] == "" and exec_result["output"].strip() == input.expected_output.strip():
+            #prediction = {k: 0 for k in prediction}
+            #return {
+                #"weaknesses": prediction,
+                #"primary": None,
+                #"hints": ["✅ Your answer is correct!"],
+                #"output": exec_result["output"],
+                #"error": ""
+           # }
+
+    # ---------------- RULE BASED DETECTION ----------------
+
+    primary = None
+
+    if "function" in input.code_text.lower() and "def " not in input.code_text:
+        prediction["no_function"] = 1
+
+    if input.expected_output and "print(" not in input.code_text:
+        prediction["missing_print"] = 1
+
+    if input.expected_output and input.expected_output in input.code_text:
+        prediction["hardcoded_value"] = 1
+
+    for k in ["no_function", "missing_print", "hardcoded_value"]:
+        if prediction.get(k) == 1:
+            primary = k
+            break
 
     # ---------------- IDLE CHECK ----------------
     if input.time_since_last_keystroke_s >= 15:
         prediction["idle_stuck"] = 1
 
     # ---------------- HINT GENERATION ----------------
-    primary = None
-    for k, v in prediction.items():
-        if v == 1:
-            primary = k
-            break
+    if not primary:
+        for k, v in prediction.items():
+            if v == 1:
+                primary = k
+                break
 
     hints = []
     if primary:
