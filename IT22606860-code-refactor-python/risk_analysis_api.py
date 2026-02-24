@@ -12,8 +12,10 @@ import ast
 from typing import Dict
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from openai import OpenAI
 import re
+
+# Centralized LLM configuration - change API key in llm_config.py
+from llm_config import LLM_CONFIG, get_llm_client_with_http_client, call_llm, print_llm_config
 
 # Import AST analysis modules
 try:
@@ -39,39 +41,19 @@ CORS(app, resources={
 # CONFIGURATION
 # ============================================
 
-# OpenRouter API Configuration
-API_KEY = "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"
-BASE_URL = "https://openrouter.ai/api/v1"
-MODEL_NAME = "deepseek/deepseek-r1-0528:free"
+# LLM config loaded from centralized llm_config.py
+# To change API key, edit llm_config.py ONLY
+MODEL_NAME = LLM_CONFIG['model_name']
+API_TIMEOUT = LLM_CONFIG['timeout']
 
-# API timeout settings
-API_TIMEOUT = 60.0  # 60 seconds timeout
+# Initialize LLM client from centralized config
+client = get_llm_client_with_http_client()
+if client:
+    print("✅ LLM client loaded from llm_config.py for Risk Analysis API")
+else:
+    print("⚠️ LLM client failed. Risk analysis features will be limited.")
 
-# Initialize OpenAI client (Python 3.14 compatible - no proxies parameter)
-try:
-    # Python 3.14 compatible initialization
-    from openai import DefaultHttpxClient
-    http_client = DefaultHttpxClient(timeout=API_TIMEOUT)
-    
-    client = OpenAI(
-        base_url=BASE_URL,
-        api_key=API_KEY,
-        http_client=http_client
-    )
-    print("✅ OpenAI client initialized successfully for Risk Analysis API")
-except Exception as e:
-    # Fallback for older OpenAI versions
-    try:
-        client = OpenAI(
-            base_url=BASE_URL,
-            api_key=API_KEY,
-            timeout=API_TIMEOUT
-        )
-        print("✅ OpenAI client initialized (fallback mode)")
-    except Exception as e2:
-        print(f"⚠️ OpenAI client initialization failed: {e}")
-        print("⚠️ Risk analysis features will be limited.")
-        client = None
+print_llm_config()
 
 # ============================================
 # CORS PREFLIGHT SUPPORT
@@ -265,14 +247,7 @@ Consider the specific changes made, potential side effects, and whether the refa
         print(f"[RISK ANALYSIS] Calling AI for risk assessment...")
         start_time = time.time()
         
-        completion = client.chat.completions.create(
-            extra_headers={
-                "HTTP-Referer": "http://localhost:8001",
-                "X-Title": "Opticode Risk Analysis API",
-            },
-            model=MODEL_NAME,
-            max_tokens=2000,
-            temperature=0.3,  # Lower temperature for more consistent results
+        raw_content = call_llm(
             messages=[
                 {
                     "role": "system",
@@ -282,15 +257,21 @@ Consider the specific changes made, potential side effects, and whether the refa
                     "role": "user",
                     "content": user_prompt
                 }
-            ]
+            ],
+            max_tokens=2000,
+            temperature=0.3,
+            extra_headers={
+                "HTTP-Referer": "http://localhost:8001",
+                "X-Title": "Opticode Risk Analysis API",
+            },
+            client=client
         )
         
         processing_time = (time.time() - start_time) * 1000
         
-        if not completion.choices or len(completion.choices) == 0:
+        if not raw_content:
             raise Exception("No response from AI")
         
-        raw_content = completion.choices[0].message.content
         cleaned = clean_ai_output(raw_content)
         
         print(f"[RISK ANALYSIS] AI response received in {processing_time:.0f}ms")

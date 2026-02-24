@@ -3,14 +3,13 @@ Flask==3.0.0
 flask-cors==4.0.0
 
 # AI/ML Models (Keep for LLM features)
-transformers==4.35.0
-torch==2.1.0
-sentencepiece==0.1.99
+transformers>=4.35.0
+torch>=2.9.0
+sentencepiece>=0.1.99
 openai>=1.50.0          # For DeepSeek API (Python 3.14 compatible)
 
 # AST and Code Analysis
 astor==0.8.1            # AST to source code conversion
-ast-pretty-print==0.1.0 # AST visualization
 black==23.12.1          # Code formatter
 isort==5.13.2           # Import sorter
 
