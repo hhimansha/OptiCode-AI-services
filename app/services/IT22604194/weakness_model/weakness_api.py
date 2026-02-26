@@ -1,3 +1,5 @@
+import ast
+import re
 from fastapi import FastAPI
 from pydantic import BaseModel
 import joblib
@@ -5,9 +7,6 @@ import pandas as pd
 from fastapi.middleware.cors import CORSMiddleware
 from code_executor import run_python
 
-# -----------------------------
-# FastAPI App
-# -----------------------------
 app = FastAPI(title="Weakness Detection API")
 
 app.add_middleware(
@@ -18,14 +17,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -----------------------------
-# Load ML model
-# -----------------------------
 model = joblib.load("weakness_model.pkl")
 
-# -----------------------------
-# Feature names & labels
-# -----------------------------
 FEATURE_NAMES = [
     "num_functions",
     "num_loops",
@@ -51,9 +44,6 @@ WEAKNESS_LABELS = [
     "hardcoded_value"
 ]
 
-# -----------------------------
-# Hint rules
-# -----------------------------
 HINT_RULES = {
     "syntax_error": {
         "Beginner": "Fix syntax.",
@@ -97,9 +87,6 @@ HINT_RULES = {
     }
 }
 
-# -----------------------------
-# Request schema
-# -----------------------------
 class CodeInput(BaseModel):
     code_text: str
     time_since_last_keystroke_s: int
@@ -107,13 +94,9 @@ class CodeInput(BaseModel):
     expected_output: str = ""
     test_input: str = ""
 
-# -----------------------------
-# Feature extraction
-# -----------------------------
 def extract_features(code: str, idle: int):
     lines = code.splitlines()
     n = len(lines)
-
     features = {
         "num_functions": code.count("def "),
         "num_loops": code.count("for ") + code.count("while "),
@@ -127,74 +110,93 @@ def extract_features(code: str, idle: int):
         "time_idle": idle,
         "edits_last_30s": 0
     }
-
     return pd.DataFrame([[features[x] for x in FEATURE_NAMES]], columns=FEATURE_NAMES)
 
-# -----------------------------
-# MAIN ENDPOINT
-# -----------------------------
+def check_hardcoded(code_text: str, expected_output: str) -> bool:
+    if not expected_output or not expected_output.strip():
+        return False
+    expected = expected_output.strip()
+    code_lines = code_text.splitlines()
+    code_without_comments = "\n".join(
+        line for line in code_lines
+        if not line.strip().startswith("#")
+    )
+    hardcoded_patterns = [
+        f'print({expected})',
+        f'print({expected} )',
+    ]
+    is_hardcoded = any(p in code_without_comments for p in hardcoded_patterns)
+    if is_hardcoded:
+        func_call_pattern = re.compile(r'\w+\([^)]*' + re.escape(expected) + r'[^)]*\)')
+        direct_print = re.compile(r'print\s*\(\s*' + re.escape(expected) + r'\s*\)')
+        if func_call_pattern.search(code_without_comments) and \
+                not direct_print.search(code_without_comments):
+            is_hardcoded = False
+    return is_hardcoded
+
 @app.post("/predict")
 def predict_weakness(input: CodeInput):
 
     skill = input.skill_level if input.skill_level in ["Beginner", "Intermediate", "Advanced"] else "Beginner"
 
     X = extract_features(input.code_text, input.time_since_last_keystroke_s).astype(float)
-
     raw = model.predict(X)[0]
     prediction = dict(zip(WEAKNESS_LABELS, map(int, raw)))
 
-    # Reduce false infinite loop detection
     if "break" in input.code_text:
         prediction["infinite_loop"] = 0
 
-    # Execute code
-    exec_result = run_python(input.code_text, input.test_input)
-
-    # ---------------- CORRECTNESS CHECK (FIRST!) ----------------
-    if input.expected_output:
-        if input.expected_output and input.expected_output in input.code_text:
-            prediction["hardcoded_value"] = 1
-            return {
-                "weaknesses": prediction,
-                "primary": "hardcoded_value",
-                "hints": ["Do not hardcode values. Calculate the result."],
-                "output": exec_result["output"],
-                "error": ""
-            }
-    if exec_result["error"] == "" and exec_result["output"].strip() == input.expected_output.strip():
-        prediction = {k: 0 for k in prediction}
+    # ---------------- SYNTAX ERROR CHECK (before running code) ----------------
+    try:
+        ast.parse(input.code_text)
+    except SyntaxError:
+        prediction["syntax_error"] = 1
         return {
             "weaknesses": prediction,
-            "primary": None,
-            "hints": ["✅ Your answer is correct!"],
+            "primary": "syntax_error",
+            "hints": [HINT_RULES["syntax_error"][skill]],
+            "output": "",
+            "error": "SyntaxError: Check your indentation and syntax."
+        }
+
+    # Execute code only if syntax is valid
+    exec_result = run_python(input.code_text, input.test_input)
+
+    # ---------------- HARDCODED VALUE CHECK ----------------
+    if check_hardcoded(input.code_text, input.expected_output):
+        prediction["hardcoded_value"] = 1
+        return {
+            "weaknesses": prediction,
+            "primary": "hardcoded_value",
+            "hints": [HINT_RULES["hardcoded_value"][skill]],
             "output": exec_result["output"],
             "error": ""
         }
 
-        #if exec_result["error"] == "" and exec_result["output"].strip() == input.expected_output.strip():
-            #prediction = {k: 0 for k in prediction}
-            #return {
-                #"weaknesses": prediction,
-                #"primary": None,
-                #"hints": ["✅ Your answer is correct!"],
-                #"output": exec_result["output"],
-                #"error": ""
-           # }
+    # ---------------- CORRECTNESS CHECK ----------------
+    if input.expected_output:
+        if exec_result["error"] == "" and exec_result["output"].strip() == input.expected_output.strip():
+            prediction = {k: 0 for k in prediction}
+            return {
+                "weaknesses": prediction,
+                "primary": None,
+                "hints": ["✅ Your answer is correct!"],
+                "output": exec_result["output"],
+                "error": ""
+            }
+        elif exec_result["error"] == "" and exec_result["output"].strip() != input.expected_output.strip():
+            prediction["logic_error"] = 1
 
     # ---------------- RULE BASED DETECTION ----------------
-
     primary = None
 
-    if "function" in input.code_text.lower() and "def " not in input.code_text:
+    if input.expected_output and "def " not in input.code_text and input.code_text.strip() != "":
         prediction["no_function"] = 1
 
     if input.expected_output and "print(" not in input.code_text:
         prediction["missing_print"] = 1
 
-    if input.expected_output and input.expected_output in input.code_text:
-        prediction["hardcoded_value"] = 1
-
-    for k in ["no_function", "missing_print", "hardcoded_value"]:
+    for k in ["idle_stuck", "no_function", "missing_print", "hardcoded_value"]:
         if prediction.get(k) == 1:
             primary = k
             break
@@ -222,16 +224,10 @@ def predict_weakness(input: CodeInput):
         "error": exec_result["error"]
     }
 
-# -----------------------------
-# Execute-only endpoint
-# -----------------------------
 @app.post("/execute")
 def execute_code(input: CodeInput):
     return run_python(input.code_text)
 
-# -----------------------------
-# Health check
-# -----------------------------
 @app.get("/")
 def health():
     return {"status": "Weakness Model API running"}
