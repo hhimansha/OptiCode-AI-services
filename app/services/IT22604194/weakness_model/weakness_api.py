@@ -20,71 +20,25 @@ app.add_middleware(
 model = joblib.load("weakness_model.pkl")
 
 FEATURE_NAMES = [
-    "num_functions",
-    "num_loops",
-    "has_if",
-    "has_return",
-    "has_recursion",
-    "while_true",
-    "syntax_error",
-    "lines_of_code",
-    "avg_line_length",
-    "time_idle",
-    "edits_last_30s"
+    "num_functions", "num_loops", "has_if", "has_return", "has_recursion",
+    "while_true", "syntax_error", "lines_of_code", "avg_line_length",
+    "time_idle", "edits_last_30s"
 ]
 
 WEAKNESS_LABELS = [
-    "syntax_error",
-    "missing_base_case",
-    "infinite_loop",
-    "logic_error",
-    "idle_stuck",
-    "no_function",
-    "missing_print",
-    "hardcoded_value"
+    "syntax_error", "missing_base_case", "infinite_loop", "logic_error",
+    "idle_stuck", "no_function", "missing_print", "hardcoded_value"
 ]
 
 HINT_RULES = {
-    "syntax_error": {
-        "Beginner": "Fix syntax.",
-        "Intermediate": "Review syntax.",
-        "Advanced": "Parser error."
-    },
-    "missing_base_case": {
-        "Beginner": "Add base case.",
-        "Intermediate": "Ensure termination.",
-        "Advanced": "Validate recursion."
-    },
-    "infinite_loop": {
-        "Beginner": "Add exit.",
-        "Intermediate": "Change loop.",
-        "Advanced": "Check invariant."
-    },
-    "logic_error": {
-        "Beginner": "Wrong output.",
-        "Intermediate": "Check logic.",
-        "Advanced": "Edge cases."
-    },
-    "idle_stuck": {
-        "Beginner": "Try first step.",
-        "Intermediate": "Break problem.",
-        "Advanced": "Re-evaluate."
-    },
-    "no_function": {
-        "Beginner": "Try writing a function using def.",
-        "Intermediate": "Define the required function.",
-        "Advanced": "Encapsulate logic in a function."
-    },
-    "missing_print": {
-        "Beginner": "Use print() to display the result.",
-        "Intermediate": "Ensure output is printed.",
-        "Advanced": "Return or print the final result."
-    },
-    "hardcoded_value": {
-        "Beginner": "Avoid fixed values. Use the input.",
-        "Intermediate": "Compute result dynamically.",
-        "Advanced": "Do not hardcode expected output."
-    }
+    "syntax_error": {"Beginner": "Fix syntax.", "Intermediate": "Review syntax.", "Advanced": "Parser error."},
+    "missing_base_case": {"Beginner": "Add base case.", "Intermediate": "Ensure termination.", "Advanced": "Validate recursion."},
+    "infinite_loop": {"Beginner": "Add exit.", "Intermediate": "Change loop.", "Advanced": "Check invariant."},
+    "logic_error": {"Beginner": "Wrong output.", "Intermediate": "Check logic.", "Advanced": "Edge cases."},
+    "idle_stuck": {"Beginner": "Try first step.", "Intermediate": "Break problem.", "Advanced": "Re-evaluate."},
+    "no_function": {"Beginner": "Try writing a function using def.", "Intermediate": "Define the required function.", "Advanced": "Encapsulate logic in a function."},
+    "missing_print": {"Beginner": "Use print() to display the result.", "Intermediate": "Ensure output is printed.", "Advanced": "Return or print the final result."},
+    "hardcoded_value": {"Beginner": "Avoid fixed values. Use the input.", "Intermediate": "Compute result dynamically.", "Advanced": "Do not hardcode expected output."}
 }
 
 class CodeInput(BaseModel):
@@ -93,6 +47,7 @@ class CodeInput(BaseModel):
     skill_level: str
     expected_output: str = ""
     test_input: str = ""
+    requires_function: bool = False   # NEW
 
 def extract_features(code: str, idle: int):
     lines = code.splitlines()
@@ -118,19 +73,14 @@ def check_hardcoded(code_text: str, expected_output: str) -> bool:
     expected = expected_output.strip()
     code_lines = code_text.splitlines()
     code_without_comments = "\n".join(
-        line for line in code_lines
-        if not line.strip().startswith("#")
+        line for line in code_lines if not line.strip().startswith("#")
     )
-    hardcoded_patterns = [
-        f'print({expected})',
-        f'print({expected} )',
-    ]
+    hardcoded_patterns = [f'print({expected})', f'print({expected} )']
     is_hardcoded = any(p in code_without_comments for p in hardcoded_patterns)
     if is_hardcoded:
         func_call_pattern = re.compile(r'\w+\([^)]*' + re.escape(expected) + r'[^)]*\)')
         direct_print = re.compile(r'print\s*\(\s*' + re.escape(expected) + r'\s*\)')
-        if func_call_pattern.search(code_without_comments) and \
-                not direct_print.search(code_without_comments):
+        if func_call_pattern.search(code_without_comments) and not direct_print.search(code_without_comments):
             is_hardcoded = False
     return is_hardcoded
 
@@ -146,7 +96,7 @@ def predict_weakness(input: CodeInput):
     if "break" in input.code_text:
         prediction["infinite_loop"] = 0
 
-    # ---------------- SYNTAX ERROR CHECK (before running code) ----------------
+    # ---------------- SYNTAX ERROR CHECK ----------------
     try:
         ast.parse(input.code_text)
     except SyntaxError:
@@ -161,6 +111,17 @@ def predict_weakness(input: CodeInput):
 
     # Execute code only if syntax is valid
     exec_result = run_python(input.code_text, input.test_input)
+
+    # ---------------- NO FUNCTION CHECK (before correctness) ----------------
+    if input.requires_function and "def " not in input.code_text and input.code_text.strip() != "":
+        prediction["no_function"] = 1
+        return {
+            "weaknesses": prediction,
+            "primary": "no_function",
+            "hints": [HINT_RULES["no_function"][skill]],
+            "output": "",
+            "error": ""
+        }
 
     # ---------------- HARDCODED VALUE CHECK ----------------
     if check_hardcoded(input.code_text, input.expected_output):
@@ -190,13 +151,10 @@ def predict_weakness(input: CodeInput):
     # ---------------- RULE BASED DETECTION ----------------
     primary = None
 
-    if input.expected_output and "def " not in input.code_text and input.code_text.strip() != "":
-        prediction["no_function"] = 1
-
     if input.expected_output and "print(" not in input.code_text:
         prediction["missing_print"] = 1
 
-    for k in ["idle_stuck", "no_function", "missing_print", "hardcoded_value"]:
+    for k in ["idle_stuck", "missing_print", "hardcoded_value"]:
         if prediction.get(k) == 1:
             primary = k
             break
