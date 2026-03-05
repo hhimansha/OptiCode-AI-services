@@ -5,6 +5,7 @@ Enhanced with AST-based metrics and comprehensive assessment
 """
 
 import os
+import sys
 import time
 import json
 import traceback
@@ -13,6 +14,15 @@ from typing import Dict
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import re
+
+# ── Fix Windows encoding issue ──
+os.environ["PYTHONIOENCODING"] = "utf-8"
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # Centralized LLM configuration - change API key in llm_config.py
 from llm_config import LLM_CONFIG, get_llm_client_with_http_client, call_llm, print_llm_config
@@ -529,6 +539,142 @@ def calculate_improvements(original: Dict, refactored: Dict) -> Dict:
     return improvements
 
 # ============================================
+# CHAT ASSISTANT ENDPOINTS
+# ============================================
+
+# In-memory chat history storage
+chat_sessions = {}
+
+@app.route('/chat', methods=['POST'])
+def chat_assistant():
+    """AI Chat Assistant endpoint for refactoring questions"""
+    try:
+        data = request.get_json()
+        message = data.get('message', '').strip()
+        history = data.get('history', [])
+        code_context = data.get('code_context', {})
+        
+        if not message:
+            return jsonify({
+                'success': False,
+                'error': 'No message provided'
+            }), 400
+        
+        print(f"\n{'='*70}")
+        print(f"[CHAT] Received message: {message[:100]}...")
+        print(f"[CHAT] History length: {len(history)}")
+        print(f"{'='*70}")
+        
+        # Build context-aware system prompt
+        system_prompt = """You are an expert Python code refactoring assistant. Your role is to help users understand:
+- Code refactoring techniques and best practices
+- Risk analysis of code changes
+- Performance optimization strategies
+- Clean code principles (SOLID, DRY, KISS)
+- Python-specific idioms and patterns
+
+When the user provides code context, analyze it and provide specific, actionable advice.
+Be concise but thorough. Use code examples when helpful.
+Format code blocks with ```python syntax."""
+
+        # Add code context if available
+        if code_context.get('original_code') or code_context.get('refactored_code'):
+            system_prompt += f"""
+
+CURRENT CODE CONTEXT:
+Original Code:
+```python
+{code_context.get('original_code', 'Not provided')}
+```
+
+Refactored Code:
+```python
+{code_context.get('refactored_code', 'Not provided')}
+```
+
+Use this context to provide relevant answers about the refactoring."""
+
+        # Build messages for LLM
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history (last 6 messages)
+        for msg in history[-6:]:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+            if role in ['user', 'assistant'] and content:
+                messages.append({"role": role, "content": content})
+        
+        # Add current message
+        messages.append({"role": "user", "content": message})
+        
+        # Call LLM
+        if client is None:
+            return jsonify({
+                'success': False,
+                'error': 'LLM client not available. Check API key configuration.'
+            }), 503
+        
+        start_time = time.time()
+        
+        response_content = call_llm(
+            messages=messages,
+            max_tokens=1500,
+            temperature=0.7,
+            extra_headers={
+                "HTTP-Referer": "http://localhost:8001",
+                "X-Title": "Opticode Chat Assistant",
+            },
+            client=client
+        )
+        
+        processing_time = (time.time() - start_time) * 1000
+        
+        if not response_content:
+            return jsonify({
+                'success': False,
+                'error': 'No response from AI'
+            }), 500
+        
+        print(f"[CHAT] Response generated in {processing_time:.0f}ms")
+        
+        return jsonify({
+            'success': True,
+            'response': response_content,
+            'message': response_content,
+            'metadata': {
+                'processing_time_ms': processing_time,
+                'model': MODEL_NAME
+            }
+        })
+        
+    except Exception as e:
+        print(f"[CHAT ERROR] {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/chat/history', methods=['GET'])
+def get_chat_history():
+    """Get chat history (placeholder - implement with session/DB if needed)"""
+    return jsonify({
+        'success': True,
+        'history': []
+    })
+
+
+@app.route('/chat/history', methods=['DELETE'])
+def clear_chat_history():
+    """Clear chat history"""
+    return jsonify({
+        'success': True,
+        'message': 'Chat history cleared'
+    })
+
+
+# ============================================
 # RUN SERVER
 # ============================================
 
@@ -543,12 +689,19 @@ if __name__ == '__main__':
     print("  3. Detailed Risk Factors")
     print("  4. Side Effects Analysis")
     print("  5. Chart Data Generation")
+    print("  6. AI Chat Assistant")
     print("="*70)
     print("[ENDPOINTS]")
     print("  POST /api/risk-analyze  - Analyze refactoring risk")
-    print("  GET  /health           - Health check")
+    print("  POST /chat              - AI Chat Assistant")
+    print("  GET  /chat/history      - Get chat history")
+    print("  DELETE /chat/history    - Clear chat history")
+    print("  GET  /health            - Health check")
     print("="*70)
     print(f"[SERVER] Running on: http://localhost:8001")
     print("="*70 + "\n")
     
-    app.run(host='0.0.0.0', port=8001, debug=True)
+    # Check if running under run_backend.py (FLASK_DEBUG=0 disables debug/reloader)
+    debug_mode = os.environ.get('FLASK_DEBUG', '1') != '0'
+    # Never use reloader when started via subprocess to avoid FD issues
+    app.run(host='0.0.0.0', port=8001, debug=debug_mode, use_reloader=False)

@@ -54,6 +54,26 @@ from test_generator import generate_tests, analyze_testability
 from performance_optimizer import optimize_performance
 from priority_refactorings import apply_priority_refactorings, get_priority_patterns
 
+# Import NEW Risk Detection & Performance Optimization modules (IT22606860)
+try:
+    from risk_refactor_filesystem import run_filesystem_risk_analysis
+    from risk_refactor_injection import run_injection_risk_analysis
+    from risk_refactor_resources import run_resource_risk_analysis
+    from perf_optimizer_memory import run_memory_optimization
+    from perf_optimizer_caching import run_caching_optimization
+    from unified_risk_refactor import (
+        refactor_risk_and_performance,
+        quick_risk_scan,
+        quick_perf_scan,
+        get_refactored_code,
+        get_issue_report
+    )
+    RISK_PERF_MODULES_AVAILABLE = True
+    print("✅ Risk Detection & Performance Optimization modules loaded")
+except ImportError as e:
+    RISK_PERF_MODULES_AVAILABLE = False
+    print(f"⚠️ Risk/Perf modules not available: {e}")
+
 app = Flask(__name__)
 
 # Configure CORS - Allow requests from frontend
@@ -1617,6 +1637,289 @@ def all_patterns():
 
 
 # ============================================
+# NEW: RISK DETECTION & PERFORMANCE OPTIMIZATION ENDPOINTS
+# Author: IT22606860
+# ============================================
+
+@app.route('/api/risk/filesystem', methods=['POST'])
+def risk_filesystem():
+    """Analyze filesystem security risks (unclosed files, path traversal, etc.)"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Risk modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = run_filesystem_risk_analysis(code)
+        return jsonify({
+            'success': True,
+            'category': 'FILESYSTEM_SECURITY',
+            'risk_score': result.get('risk_score', 0),
+            'total_issues': result.get('total_issues', 0),
+            'issues': [{
+                'type': i.risk_type,
+                'severity': i.severity,
+                'line': i.line,
+                'description': i.description,
+                'fix': i.after_suggestion
+            } for i in result.get('issues', [])],
+            'refactored_code': result.get('refactored_code', code),
+            'changes_applied': result.get('changes_applied', [])
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/risk/injection', methods=['POST'])
+def risk_injection():
+    """Analyze injection vulnerabilities (shell, SQL, eval, yaml, pickle)"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Risk modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = run_injection_risk_analysis(code)
+        return jsonify({
+            'success': True,
+            'category': 'INJECTION_SECURITY',
+            'risk_score': result.get('risk_score', 0),
+            'total_issues': result.get('total_issues', 0),
+            'issues': [{
+                'type': i.risk_type,
+                'severity': i.severity,
+                'line': i.line,
+                'description': i.description,
+                'fix': i.after_suggestion
+            } for i in result.get('issues', [])],
+            'refactored_code': result.get('refactored_code', code),
+            'changes_applied': result.get('changes_applied', [])
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/risk/resources', methods=['POST'])
+def risk_resources():
+    """Analyze resource leaks & concurrency issues (locks, DB connections, timeouts)"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Risk modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = run_resource_risk_analysis(code)
+        return jsonify({
+            'success': True,
+            'category': 'RESOURCE_SAFETY',
+            'risk_score': result.get('risk_score', 0),
+            'total_issues': result.get('total_issues', 0),
+            'issues': [{
+                'type': i.risk_type,
+                'severity': i.severity,
+                'line': i.line,
+                'description': i.description,
+                'fix': i.after_suggestion
+            } for i in result.get('issues', [])],
+            'refactored_code': result.get('refactored_code', code),
+            'changes_applied': result.get('changes_applied', [])
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/perf/memory', methods=['POST'])
+def perf_memory():
+    """Optimize memory usage (__slots__, string concat, readlines, list membership)"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Perf modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = run_memory_optimization(code)
+        return jsonify({
+            'success': True,
+            'category': 'MEMORY_PERFORMANCE',
+            'perf_score': result.get('perf_score', 0),
+            'total_issues': result.get('total_issues', 0),
+            'issues': [{
+                'type': i.issue_type,
+                'severity': i.severity,
+                'line': i.line,
+                'description': i.description,
+                'fix': i.after_suggestion,
+                'expected_improvement': i.expected_improvement
+            } for i in result.get('issues', [])],
+            'optimized_code': result.get('optimized_code', code),
+            'changes_applied': result.get('changes_applied', [])
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/perf/caching', methods=['POST'])
+def perf_caching():
+    """Optimize caching & algorithms (lru_cache, range(len), augmented assignment)"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Perf modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = run_caching_optimization(code)
+        return jsonify({
+            'success': True,
+            'category': 'CACHING_PERFORMANCE',
+            'perf_score': result.get('perf_score', 0),
+            'total_issues': result.get('total_issues', 0),
+            'issues': [{
+                'type': i.issue_type,
+                'severity': i.severity,
+                'line': i.line,
+                'description': i.description,
+                'fix': i.after_suggestion,
+                'expected_improvement': i.expected_improvement
+            } for i in result.get('issues', [])],
+            'optimized_code': result.get('optimized_code', code),
+            'changes_applied': result.get('changes_applied', [])
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/unified-risk-perf', methods=['POST'])
+def unified_risk_perf():
+    """Run FULL 5-stage risk detection & performance optimization pipeline"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Risk/Perf modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = refactor_risk_and_performance(code)
+        return jsonify({
+            'success': True,
+            'overall_risk_score': result.get('overall_risk_score', 0),
+            'overall_perf_score': result.get('overall_perf_score', 0),
+            'total_issues': result.get('total_issues', 0),
+            'summary': result.get('summary', {}),
+            'categories': result.get('categories', {}),
+            'category_breakdown': result.get('category_breakdown', {}),
+            'issues': [{
+                'category': i.category,
+                'type': i.issue_type,
+                'severity': i.severity,
+                'line': i.line,
+                'description': i.description,
+                'fix': i.fix_suggestion,
+                'expected_improvement': i.expected_improvement
+            } for i in result.get('issues', [])],
+            'refactored_code': result.get('refactored_code', code),
+            'all_changes': result.get('all_changes', [])
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/quick-risk-scan', methods=['POST'])
+def quick_risk_scan_endpoint():
+    """Quick security-only scan (stages 1-3: filesystem, injection, resources)"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Risk modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = quick_risk_scan(code)
+        return jsonify({
+            'success': True,
+            'risk_score': result.get('risk_score', 0),
+            'total_issues': result.get('total_issues', 0),
+            'is_safe': result.get('is_safe', False),
+            'issues': [{
+                'type': getattr(i, 'risk_type', 'UNKNOWN'),
+                'severity': getattr(i, 'severity', 'LOW'),
+                'line': getattr(i, 'line', 0),
+                'description': getattr(i, 'description', '')
+            } for i in result.get('issues', [])]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/quick-perf-scan', methods=['POST'])
+def quick_perf_scan_endpoint():
+    """Quick performance-only scan (stages 4-5: memory, caching)"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Perf modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = quick_perf_scan(code)
+        return jsonify({
+            'success': True,
+            'perf_score': result.get('perf_score', 0),
+            'total_issues': result.get('total_issues', 0),
+            'is_optimized': result.get('is_optimized', False),
+            'issues': [{
+                'type': getattr(i, 'issue_type', 'UNKNOWN'),
+                'severity': getattr(i, 'severity', 'LOW'),
+                'line': getattr(i, 'line', 0),
+                'description': getattr(i, 'description', '')
+            } for i in result.get('issues', [])]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/risk-report', methods=['POST'])
+def risk_report():
+    """Generate human-readable risk & performance report"""
+    if not RISK_PERF_MODULES_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Risk/Perf modules not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        report = get_issue_report(code)
+        return jsonify({
+            'success': True,
+            'report': report
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+# ============================================
 # MAIN
 # ============================================
 
@@ -1677,6 +1980,16 @@ if __name__ == '__main__':
     print("  ✓ Test Generation (Unit Tests, Coverage)")
     print("  ✓ Performance Optimization (Algorithmic, Data Structures)")
     print()
+    print("[RISK DETECTION & PERFORMANCE OPTIMIZATION - NEW]")
+    print(f"  Status: {'✅ ENABLED' if RISK_PERF_MODULES_AVAILABLE else '❌ NOT AVAILABLE'}")
+    if RISK_PERF_MODULES_AVAILABLE:
+        print("  ✓ Filesystem Security (unclosed files, path traversal, unsafe rmtree)")
+        print("  ✓ Injection Vulnerabilities (shell, SQL, eval, yaml, pickle)")
+        print("  ✓ Resource Safety (locks, DB connections, bare except, timeouts)")
+        print("  ✓ Memory Optimization (__slots__, string concat, readlines)")
+        print("  ✓ Caching & Algorithms (lru_cache, range(len), nested loops)")
+        print("  ✓ Unified 5-Stage Pipeline (risk + performance combined)")
+    print()
     print("[ML MODEL]")
     print(f"  Type: T5ForConditionalGeneration")
     print(f"  Path: {LOCAL_MODEL_PATH}")
@@ -1718,8 +2031,23 @@ if __name__ == '__main__':
     print("  GET  /api/priority-patterns     - List top 20 priority patterns")
     print("  GET  /api/patterns/all          - All patterns from all modules")
     print("  GET  /health                    - Health check + pipeline status")
+    print()
+    print("  [RISK DETECTION & PERFORMANCE ENDPOINTS - NEW]")
+    print("  POST /api/risk/filesystem       - Filesystem security risks")
+    print("  POST /api/risk/injection        - Injection vulnerabilities")
+    print("  POST /api/risk/resources        - Resource leaks & concurrency")
+    print("  POST /api/perf/memory           - Memory optimization")
+    print("  POST /api/perf/caching          - Caching & algorithmic optimization")
+    print("  POST /api/unified-risk-perf     - FULL 5-stage pipeline")
+    print("  POST /api/quick-risk-scan       - Quick security-only scan")
+    print("  POST /api/quick-perf-scan       - Quick performance-only scan")
+    print("  POST /api/risk-report           - Human-readable report")
     print("="*80)
     print(f"[SERVER] Running on: http://localhost:8000")
     print("="*80 + "\n")
     
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    # Check if running under run_backend.py (FLASK_DEBUG=0 disables debug/reloader)
+    debug_mode = os.environ.get('FLASK_DEBUG', '1') != '0'
+    # Never use reloader when started via subprocess to avoid FD issues
+    use_reloader = debug_mode and os.environ.get('WERKZEUG_RUN_MAIN') != 'true'
+    app.run(host='0.0.0.0', port=8000, debug=debug_mode, use_reloader=False)

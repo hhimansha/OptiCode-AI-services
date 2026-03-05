@@ -18,6 +18,7 @@ from best_practices import check_best_practices
 from ethical_code_analyzer import analyze_ethical_code
 from architecture_analyzer import analyze_architecture
 from performance_optimizer import optimize_performance
+from unified_risk_refactor import refactor_risk_and_performance
 
 
 def refactor_complete(code: str, options: Optional[Dict] = None) -> Dict:
@@ -155,6 +156,31 @@ def refactor_complete(code: str, options: Optional[Dict] = None) -> Dict:
             else:
                 results['stages']['performance'] = {'applied': False, 'error': perf_result.get('error')}
                 print(f"[UNIFIED]   ⚠️  Performance failed: {perf_result.get('error')}")
+        
+        # ============================================
+        # STAGE 5: RISK & RESOURCE REFACTORING (5 modules)
+        # Lock, DB conn, timeout, list->set, caching, etc.
+        # ============================================
+        if options.get('apply_risk', True):
+            print("[UNIFIED] Stage 5: Risk & Resource refactoring...")
+            try:
+                risk_result = refactor_risk_and_performance(current_code)
+                
+                if risk_result.get('refactored_code'):
+                    current_code = risk_result.get('refactored_code', current_code)
+                
+                results['stages']['risk_resource'] = {
+                    'applied': True,
+                    'total_issues': risk_result.get('total_issues', 0),
+                    'risk_score': risk_result.get('overall_risk_score', 0),
+                    'perf_score': risk_result.get('overall_perf_score', 0),
+                    'changes': risk_result.get('all_changes', [])
+                }
+                results['all_changes'].extend(risk_result.get('all_changes', []))
+                print(f"[UNIFIED]   ✅ Risk/Resource: {risk_result.get('total_issues', 0)} issues found")
+            except Exception as e:
+                results['stages']['risk_resource'] = {'applied': False, 'error': str(e)}
+                print(f"[UNIFIED]   ⚠️  Risk/Resource failed: {e}")
         
         # ============================================
         # ANALYSIS: Code Quality, Architecture, Best Practices, Ethics

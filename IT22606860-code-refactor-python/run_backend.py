@@ -131,6 +131,8 @@ def start_service(service):
 
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
+    # Disable Flask's debug mode to prevent reloader subprocess issues
+    env["FLASK_DEBUG"] = "0"
 
     try:
         if service.get("uvicorn_app"):
@@ -144,21 +146,27 @@ def start_service(service):
         else:
             cmd = [sys.executable, "-u", service["script"]]
 
+        # Create log file for service output
+        log_file_path = REFACTOR_DIR / f"{service['name'].lower().replace(' ', '_').replace('(', '').replace(')', '')}.log"
+        log_file = open(log_file_path, "w", encoding="utf-8")
+        
         proc = subprocess.Popen(
             cmd,
             cwd=service["cwd"],
-            stdout=subprocess.PIPE,
+            stdout=log_file,
             stderr=subprocess.STDOUT,
             env=env,
         )
 
         # Wait briefly and check it didn't crash immediately
-        time.sleep(3)
+        time.sleep(4)
         if proc.poll() is not None:
             print(f"  [FAIL] {name} exited immediately (code {proc.returncode})")
+            log_file.close()
             return None
 
         print(f"  [OK] {name:35} -> http://localhost:{port}")
+        print(f"       Log: {log_file_path}")
         return proc
 
     except Exception as e:
@@ -173,12 +181,18 @@ def health_check():
     all_ok = True
     for svc in SERVICES:
         url = f"http://localhost:{svc['port']}{svc['health']}"
-        try:
-            resp = urllib.request.urlopen(url, timeout=5)
-            print(f"  [OK]   {svc['name']:35} {url}  ({resp.status})")
-        except Exception:
-            print(f"  [DOWN] {svc['name']:35} {url}")
-            all_ok = False
+        # Retry up to 3 times with 2 second delays
+        for attempt in range(3):
+            try:
+                resp = urllib.request.urlopen(url, timeout=5)
+                print(f"  [OK]   {svc['name']:35} {url}  ({resp.status})")
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(2)
+                else:
+                    print(f"  [DOWN] {svc['name']:35} {url}")
+                    all_ok = False
     return all_ok
 
 
@@ -259,6 +273,16 @@ def main():
     print("    POST http://localhost:8001/api/risk-analyze         - Risk analysis")
     print("    GET  http://localhost:8002/api/categories           - Learning topics")
     print("    POST http://localhost:8003/concepts/extract         - Concept extraction")
+    print()
+    print("  Risk Detection & Performance Optimization (NEW):")
+    print("    POST http://localhost:8000/api/risk/filesystem      - Filesystem security")
+    print("    POST http://localhost:8000/api/risk/injection       - Injection vulnerabilities")
+    print("    POST http://localhost:8000/api/risk/resources       - Resource leaks")
+    print("    POST http://localhost:8000/api/perf/memory          - Memory optimization")
+    print("    POST http://localhost:8000/api/perf/caching         - Caching optimization")
+    print("    POST http://localhost:8000/api/unified-risk-perf    - FULL 5-stage pipeline")
+    print("    POST http://localhost:8000/api/quick-risk-scan      - Quick security scan")
+    print("    POST http://localhost:8000/api/quick-perf-scan      - Quick perf scan")
     print()
     print("  Press Ctrl+C to stop all services.")
     print_banner("", char="-")
