@@ -1840,6 +1840,39 @@ def unified_risk_perf():
         return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
 
 
+# =============================================================================
+# SECURITY AST REFACTORING ENDPOINT (20 Bandit Patterns)
+# =============================================================================
+
+@app.route('/api/security-refactor', methods=['POST'])
+def security_refactor_endpoint():
+    """Comprehensive AST-based security vulnerability detection & auto-fix (20 patterns)."""
+    try:
+        from security_ast_refactor import run_security_refactoring
+    except ImportError:
+        return jsonify({'success': False, 'error': 'security_ast_refactor module not available'}), 503
+
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        if not code:
+            return jsonify({'success': False, 'error': 'No code provided'}), 400
+
+        result = run_security_refactoring(code)
+        return jsonify({
+            'success': True,
+            'refactored_code': result.get('refactored_code', code),
+            'total_issues': result.get('total_issues', 0),
+            'total_fixes': result.get('total_fixes', 0),
+            'risk_score': result.get('risk_score', 0),
+            'vulnerability_summary': result.get('vulnerability_summary', {}),
+            'suggestions': result.get('suggestions', []),
+            'changes_applied': result.get('changes_applied', [])
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
 @app.route('/api/quick-risk-scan', methods=['POST'])
 def quick_risk_scan_endpoint():
     """Quick security-only scan (stages 1-3: filesystem, injection, resources)"""
@@ -1974,6 +2007,7 @@ if __name__ == '__main__':
     print("  ✓ Best Practices Checking (SOLID, DRY, etc.)")
     print("  ✓ Ethical Coding Analysis")
     print("  ✓ Security Scanning")
+    print("  ✓ Security AST Refactoring (20 Bandit Patterns - NEW)")
     print("  ✓ Complexity Metrics")
     print("  ✓ Refactoring Suggestions")
     print("  ✓ Architecture Analysis (Design Patterns, SOLID)")
@@ -2040,6 +2074,7 @@ if __name__ == '__main__':
     print("  POST /api/perf/caching          - Caching & algorithmic optimization")
     print("  POST /api/unified-risk-perf     - FULL 5-stage pipeline")
     print("  POST /api/quick-risk-scan       - Quick security-only scan")
+    print("  POST /api/security-refactor     - 20-pattern AST security refactoring (NEW)")
     print("  POST /api/quick-perf-scan       - Quick performance-only scan")
     print("  POST /api/risk-report           - Human-readable report")
     print("="*80)

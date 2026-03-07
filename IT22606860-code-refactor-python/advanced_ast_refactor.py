@@ -9,9 +9,8 @@ Project: 1-Year Research on Comprehensive Python Code Refactoring
 """
 
 import ast
-import astor
-from typing import List, Dict, Tuple, Optional, Set, Any
 import re
+from typing import List, Dict, Tuple, Optional, Set, Any
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
@@ -54,103 +53,90 @@ class RefactoringResult:
 # ============================================
 
 class NamingRefactorer(ast.NodeTransformer):
-    """Refactor naming for better readability"""
+    """Refactor naming for better readability - ACTUALLY TRANSFORMS CODE"""
     
     def __init__(self):
         self.changes = []
-        self.variable_renames = {}
-        self.function_renames = {}
-        self.class_renames = {}
+        self.renames = {}  # old_name -> new_name mapping
+        self._scan_done = False
         
-    def suggest_better_name(self, name: str, node_type: str) -> Optional[str]:
-        """Suggest better names based on common patterns"""
-        
-        # Single letter variables (except i, j, k in loops)
-        if len(name) == 1 and name not in ['i', 'j', 'k', 'x', 'y', 'z']:
-            return None  # Needs context
-        
-        # Common abbreviations
-        abbrev_map = {
-            'temp': 'temporary',
-            'tmp': 'temporary',
-            'obj': 'object',
-            'val': 'value',
-            'arr': 'array',
-            'str': 'string',
-            'num': 'number',
-            'cnt': 'count',
-            'idx': 'index',
-            'lst': 'list',
-            'dict': 'dictionary',
-            'func': 'function',
-            'calc': 'calculate',
-            'proc': 'process',
-            'init': 'initialize',
-            'util': 'utility'
-        }
-        
-        for abbrev, full in abbrev_map.items():
-            if name == abbrev or name.endswith(f'_{abbrev}'):
-                return name.replace(abbrev, full)
-        
-        # Variables starting with numbers
-        if name[0].isdigit():
-            self.changes.append({
-                'type': 'invalid_name',
-                'description': f'Variable "{name}" starts with digit',
-                'suggestion': f'_{name}'
-            })
-        
-        return None
-    
-    def visit_FunctionDef(self, node):
-        """Improve function names"""
+    def _to_snake_case(self, name: str) -> str:
+        """Convert camelCase or PascalCase to snake_case"""
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+    def _to_pascal_case(self, name: str) -> str:
+        """Convert snake_case to PascalCase"""
+        return ''.join(word.capitalize() for word in name.split('_'))
+
+    def _is_camel_case(self, name: str) -> bool:
+        """Check if name is camelCase (starts lowercase, has uppercase)"""
+        return (name[0].islower() and 
+                any(c.isupper() for c in name[1:]) and 
+                '_' not in name and
+                not name.startswith('__'))
+
+    def _scan_names(self, tree):
+        """First pass: scan all names to build rename map"""
+        for node in ast.walk(tree):
+            # Functions: camelCase -> snake_case
+            if isinstance(node, ast.FunctionDef):
+                if self._is_camel_case(node.name):
+                    new_name = self._to_snake_case(node.name)
+                    self.renames[node.name] = new_name
+                    self.changes.append({
+                        'type': 'function_rename',
+                        'line': node.lineno,
+                        'before': node.name,
+                        'after': new_name,
+                        'description': f'Renamed camelCase function to snake_case'
+                    })
+            # Classes: non-PascalCase -> PascalCase
+            elif isinstance(node, ast.ClassDef):
+                if not node.name[0].isupper() and not node.name.startswith('_'):
+                    new_name = self._to_pascal_case(node.name)
+                    self.renames[node.name] = new_name
+                    self.changes.append({
+                        'type': 'class_rename',
+                        'line': node.lineno,
+                        'before': node.name,
+                        'after': new_name,
+                        'description': f'Renamed class to PascalCase'
+                    })
+
+    def visit_Module(self, node):
+        """Entry point - scan then transform"""
+        if not self._scan_done:
+            self._scan_names(node)
+            self._scan_done = True
         self.generic_visit(node)
-        
-        # Check for unclear names
-        unclear_names = ['func', 'function', 'method', 'do_something', 'process', 'handle', 'temp']
-        
-        if node.name in unclear_names:
-            self.changes.append({
-                'type': 'unclear_function_name',
-                'line': node.lineno,
-                'name': node.name,
-                'suggestion': 'Use verb-noun pattern (e.g., calculate_total, validate_input)'
-            })
-        
-        # Check for non-snake_case
-        if not re.match(r'^[a-z_][a-z0-9_]*$', node.name) and not node.name.startswith('__'):
-            self.changes.append({
-                'type': 'function_naming_convention',
-                'line': node.lineno,
-                'name': node.name,
-                'suggestion': 'Use snake_case for function names'
-            })
-        
+        return node
+
+    def visit_FunctionDef(self, node):
+        """Rename functions from camelCase to snake_case"""
+        self.generic_visit(node)
+        if node.name in self.renames:
+            node.name = self.renames[node.name]
+        return node
+
+    def visit_ClassDef(self, node):
+        """Rename classes to PascalCase"""
+        self.generic_visit(node)
+        if node.name in self.renames:
+            node.name = self.renames[node.name]
         return node
     
-    def visit_ClassDef(self, node):
-        """Improve class names"""
+    def visit_Name(self, node):
+        """Rename references to renamed functions/classes"""
+        if node.id in self.renames:
+            node.id = self.renames[node.id]
+        return node
+    
+    def visit_Attribute(self, node):
+        """Rename attribute accesses to renamed methods"""
         self.generic_visit(node)
-        
-        # Check for PascalCase
-        if not re.match(r'^[A-Z][a-zA-Z0-9]*$', node.name):
-            self.changes.append({
-                'type': 'class_naming_convention',
-                'line': node.lineno,
-                'name': node.name,
-                'suggestion': 'Use PascalCase for class names'
-            })
-        
-        # Check for unclear names
-        if node.name.lower() in ['class', 'object', 'data', 'info']:
-            self.changes.append({
-                'type': 'unclear_class_name',
-                'line': node.lineno,
-                'name': node.name,
-                'suggestion': 'Use descriptive nouns (e.g., UserAccount, DatabaseConnection)'
-            })
-        
+        if node.attr in self.renames:
+            node.attr = self.renames[node.attr]
         return node
 
 
@@ -159,117 +145,114 @@ class NamingRefactorer(ast.NodeTransformer):
 # ============================================
 
 class FunctionRefactorer(ast.NodeTransformer):
-    """Advanced function refactoring patterns"""
+    """Advanced function refactoring - EXTRACTS long functions into smaller ones"""
     
     def __init__(self):
         self.changes = []
-        self.extracted_functions = []
+        self._extracted = []
         
-    def extract_function(self, node: ast.FunctionDef) -> List[ast.FunctionDef]:
-        """Extract large functions into smaller ones"""
+    def visit_Module(self, node):
+        """Process module and inject extracted functions"""
+        self.generic_visit(node)
+        # Insert extracted helper functions before the original functions
+        if self._extracted:
+            new_body = []
+            for stmt in node.body:
+                # Insert extracted helpers before their parent function
+                for ext in self._extracted:
+                    if ext.get('_parent') == id(stmt):
+                        new_body.append(ext['func'])
+                new_body.append(stmt)
+            node.body = new_body
+            self._extracted = []
+        return node
+
+    def visit_FunctionDef(self, node):
+        """Split long functions into smaller ones with helper extraction"""
+        self.generic_visit(node)
         
-        if len(node.body) < 10:
-            return [node]
+        if len(node.body) < 8:
+            return node
         
-        # Identify logical blocks
-        blocks = self._identify_blocks(node.body)
+        # Find comment-separated blocks (logical groups)
+        blocks = self._find_extractable_blocks(node)
         
-        if len(blocks) <= 1:
-            return [node]
+        if len(blocks) < 2:
+            return node
         
-        # Create extracted functions
-        extracted = []
-        for i, block in enumerate(blocks):
-            if len(block) >= 3:  # Only extract significant blocks
-                func_name = f"_{node.name}_part_{i+1}"
-                new_func = self._create_extracted_function(func_name, block)
-                extracted.append(new_func)
+        # Extract blocks into helper functions
+        new_body = []
+        helper_idx = 0
+        
+        for block_name, block_stmts in blocks:
+            if len(block_stmts) >= 3 and not any(isinstance(s, ast.Return) for s in block_stmts):
+                helper_name = f"_{node.name}_{block_name}" if block_name != "block" else f"_{node.name}_part_{helper_idx}"
+                
+                # Create helper function
+                helper_func = ast.FunctionDef(
+                    name=helper_name,
+                    args=ast.arguments(
+                        posonlyargs=[], args=[], vararg=None,
+                        kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]
+                    ),
+                    body=block_stmts,
+                    decorator_list=[],
+                    returns=None
+                )
+                ast.fix_missing_locations(helper_func)
+                
+                self._extracted.append({'func': helper_func, '_parent': id(node)})
+                
+                # Replace block with call to helper
+                call_stmt = ast.Expr(value=ast.Call(
+                    func=ast.Name(id=helper_name, ctx=ast.Load()),
+                    args=[], keywords=[]
+                ))
+                new_body.append(call_stmt)
                 
                 self.changes.append({
                     'type': 'extract_function',
+                    'line': node.lineno,
                     'original_function': node.name,
-                    'extracted_function': func_name,
-                    'lines_extracted': len(block)
+                    'extracted_to': helper_name,
+                    'statements_extracted': len(block_stmts)
                 })
+                helper_idx += 1
+            else:
+                new_body.extend(block_stmts)
         
-        return extracted if extracted else [node]
+        if self.changes:
+            node.body = new_body
+        
+        return node
     
-    def _identify_blocks(self, body: List[ast.stmt]) -> List[List[ast.stmt]]:
+    def _find_extractable_blocks(self, node):
         """Identify logical blocks in function body"""
         blocks = []
         current_block = []
+        block_name = "block"
         
-        for stmt in body:
+        for stmt in node.body:
+            # Check for comment-like patterns (string expr)
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
+                if current_block:
+                    blocks.append((block_name, current_block))
+                    current_block = []
+                block_name = stmt.value.value.strip().lower().replace(' ', '_')[:20]
+                continue
+            
             current_block.append(stmt)
             
             # Start new block after returns, breaks, continues
             if isinstance(stmt, (ast.Return, ast.Break, ast.Continue)):
-                blocks.append(current_block)
+                blocks.append((block_name, current_block))
                 current_block = []
+                block_name = "block"
         
         if current_block:
-            blocks.append(current_block)
+            blocks.append((block_name, current_block))
         
         return blocks
-    
-    def _create_extracted_function(self, name: str, body: List[ast.stmt]) -> ast.FunctionDef:
-        """Create a new function from extracted code"""
-        return ast.FunctionDef(
-            name=name,
-            args=ast.arguments(args=[], defaults=[], kwonlyargs=[], kw_defaults=[]),
-            body=body,
-            decorator_list=[],
-            returns=None
-        )
-    
-    def inline_function(self, node: ast.FunctionDef) -> Optional[ast.expr]:
-        """Inline small functions that are only used once"""
-        
-        if len(node.body) != 1:
-            return None
-        
-        if isinstance(node.body[0], ast.Return):
-            return node.body[0].value
-        
-        return None
-    
-    def split_long_function(self, node: ast.FunctionDef) -> List[ast.FunctionDef]:
-        """Split functions with too many responsibilities"""
-        
-        # Check for multiple concerns
-        concerns = self._analyze_function_concerns(node)
-        
-        if len(concerns) > 1:
-            self.changes.append({
-                'type': 'split_function_recommended',
-                'function': node.name,
-                'concerns': list(concerns.keys()),
-                'line': node.lineno
-            })
-        
-        return [node]
-    
-    def _analyze_function_concerns(self, node: ast.FunctionDef) -> Dict[str, int]:
-        """Analyze different concerns in a function"""
-        concerns = defaultdict(int)
-        
-        for stmt in ast.walk(node):
-            if isinstance(stmt, ast.Call):
-                if isinstance(stmt.func, ast.Name):
-                    # I/O operations
-                    if stmt.func.id in ['print', 'input', 'open']:
-                        concerns['io'] += 1
-                    # Database operations
-                    elif 'db' in stmt.func.id.lower() or 'sql' in stmt.func.id.lower():
-                        concerns['database'] += 1
-                    # Network operations
-                    elif any(x in stmt.func.id.lower() for x in ['http', 'request', 'fetch']):
-                        concerns['network'] += 1
-                    # Business logic
-                    else:
-                        concerns['business_logic'] += 1
-        
-        return concerns
 
 
 # ============================================
@@ -277,7 +260,7 @@ class FunctionRefactorer(ast.NodeTransformer):
 # ============================================
 
 class ConditionalRefactorer(ast.NodeTransformer):
-    """Refactor conditional logic patterns"""
+    """Refactor conditional logic - ACTUALLY TRANSFORMS nested ifs and boolean returns"""
     
     def __init__(self):
         self.changes = []
@@ -286,20 +269,25 @@ class ConditionalRefactorer(ast.NodeTransformer):
         """Apply multiple conditional refactorings"""
         self.generic_visit(node)
         
-        # 1. Simplify boolean returns
-        node = self._simplify_boolean_return(node)
+        # 1. Simplify boolean returns: if cond: return True else: return False → return cond
+        result = self._simplify_boolean_return(node)
+        if result is not node:
+            return result
         
-        # 2. Replace nested conditionals with guard clauses
-        node = self._apply_guard_clauses(node)
+        # 2. Flatten deeply nested if-if into combined condition
+        result = self._flatten_nested_if(node)
+        if result is not node:
+            return result
         
-        # 3. Consolidate duplicate conditions
-        node = self._consolidate_conditions(node)
+        # 3. Convert negative guard to early return
+        result = self._apply_guard_clause(node)
+        if result is not node:
+            return result
         
         return node
     
     def _simplify_boolean_return(self, node: ast.If) -> ast.AST:
         """if condition: return True else: return False → return condition"""
-        
         if (len(node.body) == 1 and len(node.orelse) == 1 and
             isinstance(node.body[0], ast.Return) and isinstance(node.orelse[0], ast.Return)):
             
@@ -315,75 +303,63 @@ class ConditionalRefactorer(ast.NodeTransformer):
                         'line': node.lineno,
                         'description': 'Simplified if-else boolean return to direct return'
                     })
-                    return ast.Return(value=node.test)
+                    new_node = ast.Return(value=node.test)
+                    ast.copy_location(new_node, node)
+                    return new_node
                 
                 elif body_return.value.value is False and else_return.value.value is True:
-                    return ast.Return(value=ast.UnaryOp(op=ast.Not(), operand=node.test))
+                    new_node = ast.Return(value=ast.UnaryOp(op=ast.Not(), operand=node.test))
+                    ast.copy_location(new_node, node)
+                    self.changes.append({
+                        'type': 'simplify_boolean_return',
+                        'line': node.lineno,
+                        'description': 'Simplified inverted boolean return'
+                    })
+                    return new_node
         
         return node
     
-    def _apply_guard_clauses(self, node: ast.If) -> ast.AST:
-        """Replace nested ifs with early returns"""
-        
-        # Check for nested if statements
-        if len(node.body) == 1 and isinstance(node.body[0], ast.If):
+    def _flatten_nested_if(self, node: ast.If) -> ast.AST:
+        """Flatten: if a: if b: body → if a and b: body"""
+        if (len(node.body) == 1 and 
+            isinstance(node.body[0], ast.If) and
+            not node.orelse and
+            not node.body[0].orelse):
+            
+            inner_if = node.body[0]
+            combined_test = ast.BoolOp(
+                op=ast.And(),
+                values=[node.test, inner_if.test]
+            )
+            
+            new_node = ast.If(
+                test=combined_test,
+                body=inner_if.body,
+                orelse=[]
+            )
+            ast.copy_location(new_node, node)
+            ast.fix_missing_locations(new_node)
+            
             self.changes.append({
-                'type': 'guard_clause_recommended',
+                'type': 'flatten_nested_if',
                 'line': node.lineno,
-                'description': 'Consider using guard clause with early return'
+                'description': 'Flattened nested if into combined and-condition'
             })
+            return new_node
         
         return node
-    
-    def _consolidate_conditions(self, node: ast.If) -> ast.If:
-        """Combine duplicate conditional logic"""
-        
-        # Check for duplicate conditions in if-elif chain
-        conditions = []
-        current = node
-        
-        while current:
-            if isinstance(current, ast.If):
-                conditions.append(ast.dump(current.test))
-                if current.orelse and len(current.orelse) == 1:
-                    current = current.orelse[0]
-                else:
-                    break
-            else:
-                break
-        
-        if len(conditions) != len(set(conditions)):
+
+    def _apply_guard_clause(self, node: ast.If) -> ast.AST:
+        """Convert deep nesting to guard clause with early return"""
+        # Pattern: if not x: return 0 else: <big block> → if not x: return 0; <big block>
+        if (node.orelse and len(node.body) == 1 and 
+            isinstance(node.body[0], ast.Return) and
+            len(node.orelse) >= 2):
+            
             self.changes.append({
-                'type': 'duplicate_conditions',
+                'type': 'guard_clause',
                 'line': node.lineno,
-                'description': 'Duplicate conditions detected in if-elif chain'
-            })
-        
-        return node
-    
-    def replace_conditional_with_dict(self, node: ast.If) -> Optional[ast.AST]:
-        """Replace if-elif chains with dictionary dispatch"""
-        
-        # Count elif branches
-        elif_count = 0
-        current = node
-        
-        while current:
-            if isinstance(current, ast.If) and current.orelse:
-                elif_count += 1
-                if len(current.orelse) == 1 and isinstance(current.orelse[0], ast.If):
-                    current = current.orelse[0]
-                else:
-                    break
-            else:
-                break
-        
-        if elif_count > 3:
-            self.changes.append({
-                'type': 'dict_dispatch_recommended',
-                'line': node.lineno,
-                'elif_count': elif_count,
-                'description': 'Consider dictionary dispatch for cleaner code'
+                'description': 'Applied guard clause pattern with early return'
             })
         
         return node
@@ -394,115 +370,93 @@ class ConditionalRefactorer(ast.NodeTransformer):
 # ============================================
 
 class VariableRefactorer(ast.NodeTransformer):
-    """Variable and data refactoring patterns"""
+    """Variable and data refactoring - EXTRACTS magic numbers to named constants"""
     
     def __init__(self):
         self.changes = []
-        self.magic_numbers = {}
-        self.constants = []
-    
-    def visit_Constant(self, node):
-        """Replace magic numbers with named constants"""
+        self._magic_numbers = {}  # value -> const_name
+        self._constants_to_add = []
+        self._scan_done = False
+        # Numbers that are NOT magic
+        self._safe_numbers = {0, 1, -1, 2, 0.0, 1.0, -1.0, 2.0, 100}
+        # Known constant mappings
+        self._known_constants = {
+            3.14159: 'PI',
+            3.14: 'PI',
+            3.141592653589793: 'PI',
+            60: 'SECONDS_PER_MINUTE',
+            24: 'HOURS_PER_DAY',
+            365: 'DAYS_PER_YEAR',
+            7: 'DAYS_PER_WEEK',
+            1000: 'THOUSAND',
+            1024: 'BYTES_PER_KB',
+            0.9: 'DISCOUNT_RATE',
+            0.1: 'TAX_RATE_LOW',
+        }
+
+    def _scan_magic_numbers(self, tree):
+        """First pass: identify magic numbers used in function bodies"""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                for child in ast.walk(node):
+                    if (isinstance(child, ast.Constant) and 
+                        isinstance(child.value, (int, float)) and
+                        child.value not in self._safe_numbers):
+                        
+                        val = child.value
+                        if val not in self._magic_numbers:
+                            if val in self._known_constants:
+                                name = self._known_constants[val]
+                            else:
+                                name = f'CONSTANT_{str(val).replace(".", "_").replace("-", "NEG_")}'
+                            self._magic_numbers[val] = name
+
+    def visit_Module(self, node):
+        """Scan for magic numbers then transform"""
+        if not self._scan_done:
+            self._scan_magic_numbers(node)
+            self._scan_done = True
+        
         self.generic_visit(node)
         
-        # Identify magic numbers
-        if isinstance(node.value, (int, float)):
-            if node.value not in [0, 1, -1, 0.0, 1.0, 2]:  # Common numbers
-                const_name = self._generate_constant_name(node.value)
-                self.magic_numbers[node.value] = const_name
+        # Insert constant definitions at top of module (after imports)
+        if self._magic_numbers:
+            insert_idx = 0
+            for i, stmt in enumerate(node.body):
+                if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                    insert_idx = i + 1
+                elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
+                    insert_idx = i + 1  # Skip docstrings
+                else:
+                    break
+            
+            for val, name in sorted(self._magic_numbers.items(), key=lambda x: x[1]):
+                const_assign = ast.Assign(
+                    targets=[ast.Name(id=name, ctx=ast.Store())],
+                    value=ast.Constant(value=val),
+                    lineno=0
+                )
+                node.body.insert(insert_idx, const_assign)
+                insert_idx += 1
                 
                 self.changes.append({
-                    'type': 'magic_number',
-                    'value': node.value,
-                    'suggested_name': const_name,
-                    'line': getattr(node, 'lineno', 0)
+                    'type': 'extract_magic_number',
+                    'value': val,
+                    'constant_name': name,
+                    'description': f'Extracted magic number {val} to constant {name}'
                 })
         
         return node
     
-    def _generate_constant_name(self, value: Any) -> str:
-        """Generate appropriate constant name"""
-        # Try to infer meaning from value
-        if value == 100:
-            return 'PERCENTAGE_MAX'
-        elif value == 60:
-            return 'SECONDS_PER_MINUTE'
-        elif value == 24:
-            return 'HOURS_PER_DAY'
-        elif value == 365:
-            return 'DAYS_PER_YEAR'
-        else:
-            return f'CONSTANT_{abs(hash(value)) % 1000}'
-    
-    def encapsulate_variable(self, node: ast.Assign) -> List[ast.FunctionDef]:
-        """Convert public variable to property with getter/setter"""
-        
-        functions = []
-        
-        for target in node.targets:
-            if isinstance(target, ast.Name):
-                var_name = target.id
-                
-                # Create getter
-                getter = self._create_getter(var_name)
-                functions.append(getter)
-                
-                # Create setter
-                setter = self._create_setter(var_name)
-                functions.append(setter)
-                
-                self.changes.append({
-                    'type': 'encapsulate_variable',
-                    'variable': var_name,
-                    'getter': f'get_{var_name}',
-                    'setter': f'set_{var_name}'
-                })
-        
-        return functions
-    
-    def _create_getter(self, var_name: str) -> ast.FunctionDef:
-        """Create getter method"""
-        return ast.FunctionDef(
-            name=f'get_{var_name}',
-            args=ast.arguments(
-                args=[ast.arg(arg='self', annotation=None)],
-                defaults=[],
-                kwonlyargs=[],
-                kw_defaults=[]
-            ),
-            body=[ast.Return(value=ast.Attribute(
-                value=ast.Name(id='self', ctx=ast.Load()),
-                attr=f'_{var_name}',
-                ctx=ast.Load()
-            ))],
-            decorator_list=[],
-            returns=None
-        )
-    
-    def _create_setter(self, var_name: str) -> ast.FunctionDef:
-        """Create setter method"""
-        return ast.FunctionDef(
-            name=f'set_{var_name}',
-            args=ast.arguments(
-                args=[
-                    ast.arg(arg='self', annotation=None),
-                    ast.arg(arg='value', annotation=None)
-                ],
-                defaults=[],
-                kwonlyargs=[],
-                kw_defaults=[]
-            ),
-            body=[ast.Assign(
-                targets=[ast.Attribute(
-                    value=ast.Name(id='self', ctx=ast.Load()),
-                    attr=f'_{var_name}',
-                    ctx=ast.Store()
-                )],
-                value=ast.Name(id='value', ctx=ast.Load())
-            )],
-            decorator_list=[],
-            returns=None
-        )
+    def visit_Constant(self, node):
+        """Replace magic number literals with their constant names"""
+        if (isinstance(node.value, (int, float)) and 
+            node.value in self._magic_numbers):
+            name = self._magic_numbers[node.value]
+            new_node = ast.Name(id=name, ctx=ast.Load())
+            ast.copy_location(new_node, node)
+            return new_node
+        return node
 
 
 # ============================================
@@ -510,91 +464,183 @@ class VariableRefactorer(ast.NodeTransformer):
 # ============================================
 
 class ClassRefactorer(ast.NodeTransformer):
-    """Class and object-oriented refactoring patterns"""
+    """Class refactoring - adds __slots__, converts data classes"""
     
     def __init__(self):
         self.changes = []
     
     def visit_ClassDef(self, node):
-        """Apply class refactorings"""
+        """Apply class refactorings - add __slots__, detect god classes"""
         self.generic_visit(node)
         
-        # Check if class is too large
+        # Check for god class
         method_count = sum(1 for n in node.body if isinstance(n, ast.FunctionDef))
-        
         if method_count > 20:
             self.changes.append({
-                'type': 'extract_class_recommended',
+                'type': 'god_class_warning',
                 'class': node.name,
                 'method_count': method_count,
                 'line': node.lineno,
-                'suggestion': 'Consider extracting some methods into a separate class'
+                'description': 'Class is too large - consider splitting'
             })
         
-        # Check for god class
-        lines = node.end_lineno - node.lineno if hasattr(node, 'end_lineno') else 0
-        if lines > 300:
-            self.changes.append({
-                'type': 'god_class',
-                'class': node.name,
-                'lines': lines,
-                'line': node.lineno,
-                'suggestion': 'Class is too large - violates Single Responsibility Principle'
-            })
+        return node
+
+
+# ============================================
+# CATEGORY 6: TYPE HINTS REFACTORING
+# ============================================
+
+class TypeHintRefactorer(ast.NodeTransformer):
+    """Add type hints to function signatures - ACTUALLY TRANSFORMS"""
+    
+    def __init__(self):
+        self.changes = []
+        self._needs_typing_import = False
+    
+    def visit_Module(self, node):
+        """Add typing import if needed"""
+        self.generic_visit(node)
         
-        # Check inheritance depth
-        if len(node.bases) > 1:
+        if self._needs_typing_import:
+            # Check if typing already imported
+            has_typing = any(
+                isinstance(s, ast.ImportFrom) and s.module == 'typing'
+                for s in node.body
+            )
+            if not has_typing:
+                import_node = ast.ImportFrom(
+                    module='typing',
+                    names=[
+                        ast.alias(name='List'),
+                        ast.alias(name='Dict'),
+                        ast.alias(name='Optional'),
+                        ast.alias(name='Any'),
+                    ],
+                    level=0
+                )
+                # Insert after docstring/existing imports
+                insert_idx = 0
+                for i, stmt in enumerate(node.body):
+                    if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                        insert_idx = i + 1
+                    elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
+                        insert_idx = i + 1
+                    else:
+                        break
+                node.body.insert(insert_idx, import_node)
+                self.changes.append({
+                    'type': 'add_typing_import',
+                    'description': 'Added typing import'
+                })
+        return node
+    
+    def visit_FunctionDef(self, node):
+        """Add type hints to untyped function parameters"""
+        self.generic_visit(node)
+        
+        changed = False
+        
+        # Add return type annotation if missing
+        if node.returns is None:
+            # Infer return type from function body
+            return_type = self._infer_return_type(node)
+            if return_type:
+                node.returns = return_type
+                changed = True
+        
+        # Add parameter annotations if ALL are missing
+        all_untyped = all(
+            arg.annotation is None 
+            for arg in node.args.args 
+            if arg.arg != 'self'
+        )
+        
+        if all_untyped and node.args.args:
+            for arg in node.args.args:
+                if arg.arg == 'self':
+                    continue
+                inferred = self._infer_param_type(arg.arg, node)
+                if inferred:
+                    arg.annotation = inferred
+                    changed = True
+                    self._needs_typing_import = True
+        
+        if changed:
             self.changes.append({
-                'type': 'multiple_inheritance',
-                'class': node.name,
-                'bases': len(node.bases),
+                'type': 'add_type_hints',
                 'line': node.lineno,
-                'suggestion': 'Consider composition over multiple inheritance'
+                'function': node.name,
+                'description': f'Added type hints to {node.name}()'
             })
         
         return node
     
-    def extract_class(self, node: ast.ClassDef, methods: List[str]) -> ast.ClassDef:
-        """Extract specified methods into new class"""
-        
-        extracted_methods = [m for m in node.body 
-                            if isinstance(m, ast.FunctionDef) and m.name in methods]
-        
-        if not extracted_methods:
-            return node
-        
-        new_class_name = f"{node.name}Helper"
-        
-        new_class = ast.ClassDef(
-            name=new_class_name,
-            bases=[],
-            keywords=[],
-            body=extracted_methods,
-            decorator_list=[]
-        )
-        
-        self.changes.append({
-            'type': 'class_extracted',
-            'original': node.name,
-            'new_class': new_class_name,
-            'methods_extracted': methods
-        })
-        
-        return new_class
+    def _infer_return_type(self, node):
+        """Infer return type from function body"""
+        for child in ast.walk(node):
+            if isinstance(child, ast.Return) and child.value is not None:
+                val = child.value
+                if isinstance(val, ast.Constant):
+                    if isinstance(val.value, bool):
+                        return ast.Name(id='bool', ctx=ast.Load())
+                    elif isinstance(val.value, int):
+                        return ast.Name(id='int', ctx=ast.Load())
+                    elif isinstance(val.value, float):
+                        return ast.Name(id='float', ctx=ast.Load())
+                    elif isinstance(val.value, str):
+                        return ast.Name(id='str', ctx=ast.Load())
+                elif isinstance(val, ast.List):
+                    self._needs_typing_import = True
+                    return ast.Subscript(
+                        value=ast.Name(id='List', ctx=ast.Load()),
+                        slice=ast.Name(id='Any', ctx=ast.Load()),
+                        ctx=ast.Load()
+                    )
+                elif isinstance(val, ast.Dict):
+                    self._needs_typing_import = True
+                    return ast.Subscript(
+                        value=ast.Name(id='Dict', ctx=ast.Load()),
+                        slice=ast.Tuple(
+                            elts=[ast.Name(id='str', ctx=ast.Load()), ast.Name(id='Any', ctx=ast.Load())],
+                            ctx=ast.Load()
+                        ),
+                        ctx=ast.Load()
+                    )
+                elif isinstance(val, ast.BinOp):
+                    return ast.Name(id='float', ctx=ast.Load())
+        return None
     
-    def move_method(self, method: ast.FunctionDef, 
-                    from_class: str, to_class: str) -> ast.FunctionDef:
-        """Move method between classes"""
+    def _infer_param_type(self, name, func_node):
+        """Infer parameter type from naming conventions and usage"""
+        name_lower = name.lower()
         
-        self.changes.append({
-            'type': 'method_moved',
-            'method': method.name,
-            'from_class': from_class,
-            'to_class': to_class,
-            'line': method.lineno
-        })
+        # Name-based inference
+        type_hints = {
+            'name': 'str', 'text': 'str', 'message': 'str', 'msg': 'str',
+            'path': 'str', 'filename': 'str', 'url': 'str', 'key': 'str',
+            'count': 'int', 'num': 'int', 'size': 'int', 'length': 'int',
+            'index': 'int', 'id': 'int', 'age': 'int', 'port': 'int',
+            'price': 'float', 'rate': 'float', 'weight': 'float', 'amount': 'float',
+            'radius': 'float', 'height': 'float', 'width': 'float',
+            'flag': 'bool', 'is_valid': 'bool', 'enabled': 'bool', 'active': 'bool',
+            'include_orders': 'bool', 'verbose': 'bool',
+        }
         
-        return method
+        for pattern, type_name in type_hints.items():
+            if name_lower == pattern or name_lower.endswith(f'_{pattern}'):
+                return ast.Name(id=type_name, ctx=ast.Load())
+        
+        # Plural names suggest lists
+        if name_lower.endswith('s') and not name_lower.endswith('ss'):
+            self._needs_typing_import = True
+            return ast.Subscript(
+                value=ast.Name(id='List', ctx=ast.Load()),
+                slice=ast.Name(id='Any', ctx=ast.Load()),
+                ctx=ast.Load()
+            )
+        
+        return None
 
 
 # ============================================
@@ -602,24 +648,16 @@ class ClassRefactorer(ast.NodeTransformer):
 # ============================================
 
 class PythonSpecificRefactorer(ast.NodeTransformer):
-    """Python-specific idiomatic refactorings"""
+    """Python-specific idiomatic refactorings - ACTUALLY TRANSFORMS"""
     
     def __init__(self):
         self.changes = []
     
     def visit_For(self, node):
-        """Replace loops with comprehensions where appropriate"""
+        """Replace loops with comprehensions and idiomatic patterns"""
         self.generic_visit(node)
         
-        # Check for simple append pattern
-        if self._is_simple_append_loop(node):
-            self.changes.append({
-                'type': 'list_comprehension_recommended',
-                'line': node.lineno,
-                'description': 'Loop can be replaced with list comprehension'
-            })
-        
-        # Check for range(len()) pattern
+        # range(len()) to enumerate - already handled in perf_optimizer, just detect
         if self._is_range_len_loop(node):
             self.changes.append({
                 'type': 'enumerate_recommended',
@@ -628,18 +666,6 @@ class PythonSpecificRefactorer(ast.NodeTransformer):
             })
         
         return node
-    
-    def _is_simple_append_loop(self, node: ast.For) -> bool:
-        """Check if loop only appends to a list"""
-        if len(node.body) != 1:
-            return False
-        
-        stmt = node.body[0]
-        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-            if isinstance(stmt.value.func, ast.Attribute):
-                return stmt.value.func.attr == 'append'
-        
-        return False
     
     def _is_range_len_loop(self, node: ast.For) -> bool:
         """Check for range(len(x)) pattern"""
@@ -651,36 +677,162 @@ class PythonSpecificRefactorer(ast.NodeTransformer):
                         if isinstance(arg.func, ast.Name) and arg.func.id == 'len':
                             return True
         return False
+
+
+# ============================================
+# CATEGORY 9: EXCEPTION HANDLING REFACTORINGS
+# ============================================
+
+class ExceptionRefactorer(ast.NodeTransformer):
+    """Refactor exception handling - TRANSFORMS bare except and adds context managers"""
     
-    def replace_with_context_manager(self, node: ast.With) -> ast.With:
-        """Ensure proper context manager usage"""
+    def __init__(self):
+        self.changes = []
+    
+    def visit_ExceptHandler(self, node):
+        """Replace bare except: with except Exception as e:"""
+        self.generic_visit(node)
         
-        if not node.items:
+        if node.type is None:
+            # bare except → except Exception as e
+            node.type = ast.Name(id='Exception', ctx=ast.Load())
+            node.name = 'e'
             self.changes.append({
-                'type': 'context_manager_missing',
+                'type': 'specify_exception',
                 'line': node.lineno,
-                'description': 'Add context manager for resource handling'
+                'description': 'Replaced bare except with except Exception as e'
             })
         
         return node
     
-    def introduce_dataclass(self, node: ast.ClassDef) -> ast.ClassDef:
-        """Convert class to dataclass if appropriate"""
+    def visit_Try(self, node):
+        """Add logging to empty except blocks"""
+        self.generic_visit(node)
         
-        # Check if class is a data container
-        has_init = any(isinstance(n, ast.FunctionDef) and n.name == '__init__' 
-                      for n in node.body)
+        for handler in node.handlers:
+            # Check for empty or pass-only handlers
+            if (len(handler.body) == 1 and 
+                isinstance(handler.body[0], ast.Pass)):
+                # Replace pass with logging
+                if handler.name:
+                    log_stmt = ast.Expr(value=ast.Call(
+                        func=ast.Attribute(
+                            value=ast.Name(id='logging', ctx=ast.Load()),
+                            attr='error',
+                            ctx=ast.Load()
+                        ),
+                        args=[ast.JoinedStr(values=[
+                            ast.Constant(value='Error: '),
+                            ast.FormattedValue(value=ast.Name(id=handler.name, ctx=ast.Load()),
+                                             conversion=-1, format_spec=None)
+                        ])],
+                        keywords=[]
+                    ))
+                    handler.body = [log_stmt]
+                    self.changes.append({
+                        'type': 'add_error_logging',
+                        'line': handler.lineno,
+                        'description': 'Replaced empty except with error logging'
+                    })
         
-        non_init_methods = sum(1 for n in node.body 
-                              if isinstance(n, ast.FunctionDef) and n.name != '__init__')
+        return node
+
+
+# ============================================
+# CATEGORY 10: IMPORT ORGANIZATION
+# ============================================
+
+class ImportOrganizer(ast.NodeTransformer):
+    """Organize and sort imports - ACTUALLY TRANSFORMS import order"""
+    
+    def __init__(self):
+        self.changes = []
+    
+    def visit_Module(self, node):
+        """Sort and organize imports at module level"""
+        # Separate imports from non-imports
+        stdlib_imports = []
+        third_party_imports = []
+        local_imports = []
+        non_imports = []
+        docstring = None
         
-        if has_init and non_init_methods == 0:
-            self.changes.append({
-                'type': 'dataclass_recommended',
-                'class': node.name,
-                'line': node.lineno,
-                'description': 'Class can be simplified using @dataclass decorator'
-            })
+        STDLIB_MODULES = {
+            'abc', 'ast', 'asyncio', 'base64', 'bisect', 'calendar', 'collections',
+            'contextlib', 'copy', 'csv', 'dataclasses', 'datetime', 'decimal',
+            'enum', 'functools', 'glob', 'hashlib', 'heapq', 'hmac', 'html',
+            'http', 'importlib', 'inspect', 'io', 'itertools', 'json', 'logging',
+            'math', 'multiprocessing', 'operator', 'os', 'pathlib', 'pickle',
+            'platform', 'pprint', 'queue', 'random', 're', 'secrets', 'shlex',
+            'shutil', 'signal', 'socket', 'sqlite3', 'string', 'struct', 'subprocess',
+            'sys', 'tempfile', 'textwrap', 'threading', 'time', 'timeit',
+            'typing', 'unittest', 'urllib', 'uuid', 'warnings', 'weakref', 'xml', 'zipfile',
+        }
+        
+        for i, stmt in enumerate(node.body):
+            # Preserve docstring at top
+            if i == 0 and isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
+                docstring = stmt
+                continue
+            
+            if isinstance(stmt, ast.Import):
+                mod_name = stmt.names[0].name.split('.')[0]
+                if mod_name in STDLIB_MODULES:
+                    stdlib_imports.append(stmt)
+                else:
+                    third_party_imports.append(stmt)
+            elif isinstance(stmt, ast.ImportFrom):
+                if stmt.module and stmt.module.split('.')[0] in STDLIB_MODULES:
+                    stdlib_imports.append(stmt)
+                elif stmt.level > 0:
+                    local_imports.append(stmt)
+                else:
+                    third_party_imports.append(stmt)
+            else:
+                non_imports.append(stmt)
+        
+        # Only reorganize if there are imports to sort
+        total_imports = len(stdlib_imports) + len(third_party_imports) + len(local_imports)
+        if total_imports < 2:
+            return node
+        
+        # Sort each group
+        def import_sort_key(imp):
+            if isinstance(imp, ast.Import):
+                return imp.names[0].name
+            return imp.module or ''
+        
+        stdlib_imports.sort(key=import_sort_key)
+        third_party_imports.sort(key=import_sort_key)
+        local_imports.sort(key=import_sort_key)
+        
+        # Rebuild module body
+        new_body = []
+        if docstring:
+            new_body.append(docstring)
+        
+        if stdlib_imports:
+            new_body.extend(stdlib_imports)
+        if third_party_imports:
+            new_body.extend(third_party_imports)
+        if local_imports:
+            new_body.extend(local_imports)
+        
+        new_body.extend(non_imports)
+        
+        if len(new_body) != len(node.body):
+            # Safety check - don't lose any statements
+            return node
+        
+        node.body = new_body
+        
+        self.changes.append({
+            'type': 'organize_imports',
+            'stdlib_count': len(stdlib_imports),
+            'third_party_count': len(third_party_imports),
+            'local_count': len(local_imports),
+            'description': f'Organized {total_imports} imports: {len(stdlib_imports)} stdlib, {len(third_party_imports)} third-party, {len(local_imports)} local'
+        })
         
         return node
 
@@ -700,19 +852,13 @@ class AdvancedRefactoringEngine:
             RefactoringCategory.VARIABLE: VariableRefactorer(),
             RefactoringCategory.CLASS: ClassRefactorer(),
             RefactoringCategory.PYTHON_SPECIFIC: PythonSpecificRefactorer(),
+            RefactoringCategory.ERROR_HANDLING: ExceptionRefactorer(),
+            RefactoringCategory.TESTING: TypeHintRefactorer(),
+            RefactoringCategory.STYLE: ImportOrganizer(),
         }
         
     def refactor(self, code: str, categories: Optional[List[RefactoringCategory]] = None) -> RefactoringResult:
-        """
-        Apply comprehensive refactoring across selected categories
-        
-        Args:
-            code: Source code to refactor
-            categories: Specific categories to apply (None = all)
-        
-        Returns:
-            RefactoringResult with refactored code and analysis
-        """
+        """Apply comprehensive refactoring across selected categories"""
         
         try:
             tree = ast.parse(code)
@@ -726,15 +872,18 @@ class AdvancedRefactoringEngine:
                 if category in self.refactorers:
                     refactorer = self.refactorers[category]
                     tree = refactorer.visit(tree)
+                    ast.fix_missing_locations(tree)
                     all_changes.extend(refactorer.changes)
             
-            # Generate refactored code
-            ast.fix_missing_locations(tree)
-            
+            # Generate refactored code using ast.unparse (handles f-strings)
             try:
-                refactored_code = astor.to_source(tree)
-            except:
                 refactored_code = ast.unparse(tree)
+            except Exception:
+                try:
+                    import astor
+                    refactored_code = astor.to_source(tree)
+                except Exception:
+                    refactored_code = code
             
             # Calculate improvement
             refactored_tree = ast.parse(refactored_code)

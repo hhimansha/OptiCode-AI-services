@@ -324,6 +324,9 @@ class RangeLenToEnumerate(ast.NodeTransformer):
         )
         ast.fix_missing_locations(node)
 
+        # Also need to update body to use item_var instead of seq_name[idx_var]
+        # This is a simplified version - full implementation would replace all seq[i] references
+        
         self.changes.append({
             "pattern": "RANGE_LEN_TO_ENUMERATE",
             "line": node.lineno,
@@ -433,6 +436,9 @@ class ConvertToAugmented(ast.NodeTransformer):
         self.changes: list[dict] = []
 
     def visit_Assign(self, node: ast.Assign):
+        # First visit children to handle nested assignments
+        self.generic_visit(node)
+        
         if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
             return node
 
@@ -630,8 +636,15 @@ def run_caching_optimization(source_code: str) -> dict:
         ast.fix_missing_locations(tree)
         all_changes.extend(t.changes)
 
+    # Use ast.unparse (Python 3.9+) first as it handles f-strings properly
+    # Fall back to astor.to_source for older Python versions
     try:
-        optimized = astor.to_source(tree)
+        optimized = ast.unparse(tree)
+    except AttributeError:
+        try:
+            optimized = astor.to_source(tree)
+        except Exception:
+            optimized = source_code
     except Exception:
         optimized = source_code
 

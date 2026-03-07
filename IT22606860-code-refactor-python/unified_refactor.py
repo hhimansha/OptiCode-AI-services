@@ -19,6 +19,7 @@ from ethical_code_analyzer import analyze_ethical_code
 from architecture_analyzer import analyze_architecture
 from performance_optimizer import optimize_performance
 from unified_risk_refactor import refactor_risk_and_performance
+from security_ast_refactor import run_security_refactoring
 
 
 def refactor_complete(code: str, options: Optional[Dict] = None) -> Dict:
@@ -181,6 +182,32 @@ def refactor_complete(code: str, options: Optional[Dict] = None) -> Dict:
             except Exception as e:
                 results['stages']['risk_resource'] = {'applied': False, 'error': str(e)}
                 print(f"[UNIFIED]   ⚠️  Risk/Resource failed: {e}")
+        
+        # ============================================
+        # STAGE 6: SECURITY AST REFACTORING (20 Bandit Patterns)
+        # ============================================
+        if options.get('apply_security', True):
+            print("[UNIFIED] Stage 6: Security AST refactoring (20 Bandit patterns)...")
+            try:
+                security_result = run_security_refactoring(current_code)
+                
+                if security_result.get('refactored_code'):
+                    current_code = security_result.get('refactored_code', current_code)
+                
+                results['stages']['security_ast'] = {
+                    'applied': True,
+                    'total_issues': security_result.get('total_issues', 0),
+                    'total_fixes': security_result.get('total_fixes', 0),
+                    'risk_score': security_result.get('risk_score', 0),
+                    'vulnerability_summary': security_result.get('vulnerability_summary', {}),
+                    'suggestions': security_result.get('suggestions', [])
+                }
+                results['all_changes'].extend(security_result.get('changes_applied', []))
+                results['all_suggestions'].extend(security_result.get('suggestions', []))
+                print(f"[UNIFIED]   ✅ Security: {security_result.get('total_issues', 0)} vulnerabilities, {security_result.get('total_fixes', 0)} fixes")
+            except Exception as e:
+                results['stages']['security_ast'] = {'applied': False, 'error': str(e)}
+                print(f"[UNIFIED]   ⚠️  Security AST failed: {e}")
         
         # ============================================
         # ANALYSIS: Code Quality, Architecture, Best Practices, Ethics

@@ -480,6 +480,7 @@ class ConvertListToSet(ast.NodeTransformer):
                         "after": f"{full_name} = {{...}}"
                     })
 
+        self.generic_visit(node)
         return node
 
 
@@ -569,6 +570,174 @@ class ListCompToGenerator(ast.NodeTransformer):
 
 
 # ─────────────────────────────────────────────
+# TRANSFORMER 5: Convert simple for-append loop to list comprehension
+# ─────────────────────────────────────────────
+
+class ForAppendToListComp(ast.NodeTransformer):
+    """
+    Converts simple for-append loops to list comprehensions.
+
+    BEFORE:
+        result = []
+        for item in items:
+            result.append(item * 2)
+
+    AFTER:
+        result = [item * 2 for item in items]
+    """
+
+    def __init__(self):
+        self.changes: list[dict] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        node.body = self._transform_body(node.body)
+        self.generic_visit(node)
+        return node
+
+    def _transform_body(self, stmts: list) -> list:
+        new_stmts = []
+        i = 0
+        while i < len(stmts):
+            # Look for pattern: result = []; for x in y: result.append(expr)
+            if (i + 1 < len(stmts) and
+                isinstance(stmts[i], ast.Assign) and
+                len(stmts[i].targets) == 1 and
+                isinstance(stmts[i].targets[0], ast.Name) and
+                isinstance(stmts[i].value, ast.List) and
+                len(stmts[i].value.elts) == 0):
+                
+                list_var = stmts[i].targets[0].id
+                for_stmt = stmts[i + 1]
+                
+                if (isinstance(for_stmt, ast.For) and
+                    len(for_stmt.body) == 1 and
+                    isinstance(for_stmt.body[0], ast.Expr) and
+                    isinstance(for_stmt.body[0].value, ast.Call) and
+                    isinstance(for_stmt.body[0].value.func, ast.Attribute) and
+                    for_stmt.body[0].value.func.attr == "append"):
+                    
+                    call = for_stmt.body[0].value
+                    if (isinstance(call.func.value, ast.Name) and
+                        call.func.value.id == list_var and
+                        len(call.args) == 1):
+                        
+                        # Create list comprehension
+                        listcomp = ast.ListComp(
+                            elt=call.args[0],
+                            generators=[ast.comprehension(
+                                target=for_stmt.target,
+                                iter=for_stmt.iter,
+                                ifs=[],
+                                is_async=0
+                            )]
+                        )
+                        new_assign = ast.Assign(
+                            targets=[ast.Name(id=list_var, ctx=ast.Store())],
+                            value=listcomp
+                        )
+                        ast.copy_location(new_assign, stmts[i])
+                        ast.fix_missing_locations(new_assign)
+                        
+                        self.changes.append({
+                            "pattern": "FOR_APPEND_TO_LISTCOMP",
+                            "line": stmts[i].lineno,
+                            "before": f"{list_var} = []; for ...: {list_var}.append(...)",
+                            "after": f"{list_var} = [expr for ... in ...]"
+                        })
+                        
+                        new_stmts.append(new_assign)
+                        i += 2
+                        continue
+            
+            new_stmts.append(stmts[i])
+            i += 1
+        
+        return new_stmts
+
+
+# ─────────────────────────────────────────────
+# TRANSFORMER 6: Convert % formatting to f-string
+# ─────────────────────────────────────────────
+
+class PercentToFString(ast.NodeTransformer):
+    """
+    Converts % string formatting to f-strings.
+
+    BEFORE:
+        message = "Hello %s, you are %d years old" % (name, age)
+
+    AFTER:
+        message = f"Hello {name}, you are {age} years old"
+    """
+
+    def __init__(self):
+        self.changes: list[dict] = []
+
+    def visit_BinOp(self, node: ast.BinOp):
+        self.generic_visit(node)
+        
+        if not isinstance(node.op, ast.Mod):
+            return node
+        
+        if not isinstance(node.left, ast.Constant):
+            return node
+        
+        if not isinstance(node.left.value, str):
+            return node
+        
+        format_str = node.left.value
+        
+        # Get the values to substitute
+        if isinstance(node.right, ast.Tuple):
+            values = node.right.elts
+        else:
+            values = [node.right]
+        
+        # Convert % placeholders to f-string format
+        import re
+        placeholders = re.findall(r'%[sd]', format_str)
+        
+        if len(placeholders) != len(values):
+            return node  # Mismatch, don't transform
+        
+        # Build f-string
+        fstring_parts = []
+        remaining = format_str
+        value_idx = 0
+        
+        for placeholder in placeholders:
+            idx = remaining.find(placeholder)
+            if idx > 0:
+                fstring_parts.append(ast.Constant(value=remaining[:idx]))
+            fstring_parts.append(ast.FormattedValue(
+                value=values[value_idx],
+                conversion=-1,
+                format_spec=None
+            ))
+            remaining = remaining[idx + len(placeholder):]
+            value_idx += 1
+        
+        if remaining:
+            fstring_parts.append(ast.Constant(value=remaining))
+        
+        if not fstring_parts:
+            return node
+        
+        fstring = ast.JoinedStr(values=fstring_parts)
+        ast.copy_location(fstring, node)
+        ast.fix_missing_locations(fstring)
+        
+        self.changes.append({
+            "pattern": "PERCENT_TO_FSTRING",
+            "line": node.lineno,
+            "before": '"..." % (...)',
+            "after": 'f"..."'
+        })
+        
+        return fstring
+
+
+# ─────────────────────────────────────────────
 # MAIN: run_memory_optimization
 # ─────────────────────────────────────────────
 
@@ -602,6 +771,8 @@ def run_memory_optimization(source_code: str) -> dict:
         ReplaceReadlines(),
         ConvertListToSet(),
         ListCompToGenerator(),
+        ForAppendToListComp(),
+        PercentToFString(),
     ]
 
     all_changes = []
@@ -610,8 +781,15 @@ def run_memory_optimization(source_code: str) -> dict:
         ast.fix_missing_locations(tree)
         all_changes.extend(t.changes)
 
+    # Use ast.unparse (Python 3.9+) first as it handles f-strings properly
+    # Fall back to astor.to_source for older Python versions
     try:
-        optimized = astor.to_source(tree)
+        optimized = ast.unparse(tree)
+    except AttributeError:
+        try:
+            optimized = astor.to_source(tree)
+        except Exception:
+            optimized = source_code
     except Exception:
         optimized = source_code
 
