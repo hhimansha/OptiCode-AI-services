@@ -5,3 +5,7 @@ python-dotenv
 qdrant-client
 openai
 cohere
+gitpython
+python-multipart
+aiofiles
+aiohttp
