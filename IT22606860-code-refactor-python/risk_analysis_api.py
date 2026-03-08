@@ -1,16 +1,27 @@
 """
 Risk Analysis API for Code Refactoring
-Uses OpenRouter AI to analyze refactoring risks and provide detailed assessment
+Uses OpenRouter AI to analyze refactoring risks and AST for technical analysis
+Enhanced with AST-based metrics and comprehensive assessment
 """
 
 import os
 import time
 import json
 import traceback
+import ast
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 import re
+
+# Import AST analysis modules
+try:
+    from code_analyzer import analyze_code
+    from ast_refactor import analyze_code_structure
+    AST_ANALYSIS_AVAILABLE = True
+except ImportError:
+    AST_ANALYSIS_AVAILABLE = False
+    print("[WARNING] AST analysis modules not available")
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React
@@ -312,7 +323,7 @@ def health():
 
 @app.route('/api/risk-analyze', methods=['POST'])
 def risk_analyze():
-    """Main risk analysis endpoint"""
+    """Enhanced risk analysis endpoint with AST-based metrics"""
     start_time = time.time()
     
     try:
@@ -322,6 +333,7 @@ def risk_analyze():
         original_code = data.get('original_code', '').strip()
         refactored_code = data.get('refactored_code', '').strip()
         language = data.get('language', 'python')
+        include_ast_analysis = data.get('include_ast_analysis', AST_ANALYSIS_AVAILABLE)
         
         # Validate
         if not original_code:
@@ -340,10 +352,39 @@ def risk_analyze():
         print(f"[RISK ANALYSIS] Starting risk analysis")
         print(f"[RISK ANALYSIS] Original: {len(original_code)} chars")
         print(f"[RISK ANALYSIS] Refactored: {len(refactored_code)} chars")
+        print(f"[RISK ANALYSIS] AST Analysis: {'Enabled' if include_ast_analysis else 'Disabled'}")
         print(f"{'='*70}")
         
-        # Perform risk analysis
+        # Perform AI-based risk analysis
         result = analyze_refactoring_risk(original_code, refactored_code, language)
+        
+        # Add AST-based technical analysis if available
+        if include_ast_analysis and AST_ANALYSIS_AVAILABLE:
+            print("[RISK ANALYSIS] Adding AST-based technical analysis...")
+            
+            try:
+                # Analyze both code versions
+                original_analysis = analyze_code(original_code)
+                refactored_analysis = analyze_code(refactored_code)
+                
+                result['technical_analysis'] = {
+                    'original': {
+                        'complexity': original_analysis.get('complexity', {}),
+                        'metrics': original_analysis.get('metrics', {}),
+                        'overall_score': original_analysis.get('overall_score', {})
+                    },
+                    'refactored': {
+                        'complexity': refactored_analysis.get('complexity', {}),
+                        'metrics': refactored_analysis.get('metrics', {}),
+                        'overall_score': refactored_analysis.get('overall_score', {})
+                    },
+                    'improvements': calculate_improvements(original_analysis, refactored_analysis)
+                }
+                
+                print("[RISK ANALYSIS] AST analysis complete")
+            except Exception as e:
+                print(f"[WARNING] AST analysis failed: {str(e)}")
+                result['technical_analysis_error'] = str(e)
         
         # Generate chart data
         risk_score = result['risk_analysis'].get('risk_score', 50)
@@ -372,6 +413,39 @@ def risk_analyze():
             'success': False,
             'message': f'Error during risk analysis: {str(e)}'
         }), 500
+
+
+def calculate_improvements(original: Dict, refactored: Dict) -> Dict:
+    """Calculate improvements between original and refactored code"""
+    
+    improvements = {}
+    
+    # Complexity improvements
+    if 'complexity' in original and 'complexity' in refactored:
+        orig_complexity = original['complexity'].get('average_complexity', 0)
+        ref_complexity = refactored['complexity'].get('average_complexity', 0)
+        
+        if orig_complexity > 0:
+            complexity_improvement = ((orig_complexity - ref_complexity) / orig_complexity) * 100
+            improvements['complexity_reduction'] = round(complexity_improvement, 2)
+    
+    # Code quality improvements
+    if 'overall_score' in original and 'overall_score' in refactored:
+        orig_score = original['overall_score'].get('score', 50)
+        ref_score = refactored['overall_score'].get('score', 50)
+        
+        improvements['quality_improvement'] = round(ref_score - orig_score, 2)
+    
+    # Lines of code change
+    if 'metrics' in original and 'metrics' in refactored:
+        orig_loc = original['metrics'].get('loc', 0)
+        ref_loc = refactored['metrics'].get('loc', 0)
+        
+        if orig_loc > 0:
+            loc_change = ((ref_loc - orig_loc) / orig_loc) * 100
+            improvements['loc_change_percent'] = round(loc_change, 2)
+    
+    return improvements
 
 # ============================================
 # RUN SERVER
