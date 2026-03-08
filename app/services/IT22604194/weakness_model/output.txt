@@ -1,0 +1,1 @@
+{"weaknesses":{"syntax_error":0,"missing_base_case":0,"infinite_loop":0,"logic_error":0,"idle_stuck":0,"no_function":1},"primary":"no_function","hints":["Define the required function."],"output":"","error":""}
