@@ -1,0 +1,167 @@
+[
+  {
+    "id": 1,
+    "name": "Correct Answer Detection",
+    "status": "PASS",
+    "primary": null,
+    "hints": [
+      "\u2705 Your answer is correct!"
+    ],
+    "output": "55",
+    "error": ""
+  },
+  {
+    "id": 2,
+    "name": "Hardcoded Value Detection",
+    "status": "PASS",
+    "primary": "hardcoded_value",
+    "hints": [
+      "Avoid fixed values. Use the input."
+    ],
+    "output": "55",
+    "error": ""
+  },
+  {
+    "id": 3,
+    "name": "Missing Print Detection",
+    "status": "PASS",
+    "primary": "missing_print",
+    "hints": [
+      "Use print() to display the result."
+    ],
+    "output": "",
+    "error": ""
+  },
+  {
+    "id": 4,
+    "name": "Idle/Stuck Detection (high idle)",
+    "status": "PASS",
+    "primary": "idle_stuck",
+    "hints": [
+      "Try first step."
+    ],
+    "output": "",
+    "error": ""
+  },
+  {
+    "id": 5,
+    "name": "Infinite Loop Detection",
+    "status": "PASS",
+    "primary": "infinite_loop",
+    "hints": [
+      "Change loop."
+    ],
+    "output": "",
+    "error": "Time limit exceeded"
+  },
+  {
+    "id": 6,
+    "name": "No Function Definition",
+    "status": "PASS",
+    "primary": "no_function",
+    "hints": [
+      "Define the required function."
+    ],
+    "output": "",
+    "error": ""
+  },
+  {
+    "id": 7,
+    "name": "Correct Function Definition",
+    "status": "PASS",
+    "primary": null,
+    "hints": [
+      "\u2705 Your answer is correct!"
+    ],
+    "output": "7",
+    "error": ""
+  },
+  {
+    "id": 8,
+    "name": "Syntax/Indentation Error",
+    "status": "PASS",
+    "primary": "syntax_error",
+    "hints": [
+      "Review syntax."
+    ],
+    "output": "",
+    "error": "SyntaxError: Check your indentation and syntax."
+  },
+  {
+    "id": 9,
+    "name": "Missing Base Case (Recursion)",
+    "status": "PASS",
+    "primary": "missing_base_case",
+    "hints": [
+      "Validate recursion."
+    ],
+    "output": "",
+    "error": "Traceback (most recent call last):\n  File \"C:\\Users\\Dell\\OptiCode-AI-services\\app\\services\\IT22604194\\weakness_model\\temp_95a523be08564daba4d8fc978a84e09e.py\", line 3, in <module>\n    print(factorial(5))\n          ^^^^^^^^^^^^\n  File \"C:\\Users\\Dell\\OptiCode-AI-services\\app\\services\\IT22604194\\weakness_model\\temp_95a523be08564daba4d8fc978a84e09e.py\", line 2, in factorial\n    return n * factorial(n-1)\n               ^^^^^^^^^^^^^^\n  File \"C:\\Users\\Dell\\OptiCode-AI-services\\app\\services\\IT22604194\\weakness_model\\temp_95a523be08564daba4d8fc978a84e09e.py\", line 2, in factorial\n    return n * factorial(n-1)\n               ^^^^^^^^^^^^^^\n  File \"C:\\Users\\Dell\\OptiCode-AI-services\\app\\services\\IT22604194\\weakness_model\\temp_95a523be08564daba4d8fc978a84e09e.py\", line 2, in factorial\n    return n * factorial(n-1)\n               ^^^^^^^^^^^^^^\n  [Previous line repeated 996 more times]\nRecursionError: maximum recursion depth exceeded"
+  },
+  {
+    "id": 10,
+    "name": "Logic Error (off-by-one)",
+    "status": "FAIL",
+    "primary": "infinite_loop",
+    "hints": [
+      "Add exit."
+    ],
+    "output": "45",
+    "error": ""
+  },
+  {
+    "id": 11,
+    "name": "Wrong Task Answer",
+    "status": "PASS",
+    "primary": "logic_error",
+    "hints": [
+      "Wrong output."
+    ],
+    "output": "55",
+    "error": ""
+  },
+  {
+    "id": 12,
+    "name": "Beginner Skill Level Hints",
+    "status": "PASS",
+    "primary": "hardcoded_value",
+    "hints": [
+      "Avoid fixed values. Use the input."
+    ],
+    "output": "55",
+    "error": ""
+  },
+  {
+    "id": 13,
+    "name": "Advanced Skill Level Hints",
+    "status": "PASS",
+    "primary": "hardcoded_value",
+    "hints": [
+      "Do not hardcode expected output."
+    ],
+    "output": "55",
+    "error": ""
+  },
+  {
+    "id": 14,
+    "name": "Empty Code \u2014 Low Idle Time",
+    "status": "PASS",
+    "primary": "idle_stuck",
+    "hints": [
+      "Try first step."
+    ],
+    "output": "",
+    "error": ""
+  },
+  {
+    "id": 15,
+    "name": "Correct Recursion With Base Case",
+    "status": "PASS",
+    "primary": null,
+    "hints": [
+      "\u2705 Your answer is correct!"
+    ],
+    "output": "120",
+    "error": ""
+  }
+]
