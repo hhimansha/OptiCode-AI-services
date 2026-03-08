@@ -28,7 +28,7 @@ LLM_CONFIG = {
     # Change this ONE key and all services will use it
     'api_key': os.getenv(
         'OPENROUTER_API_KEY',
-        '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'
+        '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'
     ),
     
     # ── API Base URL ─────────────────────────────────────────────
