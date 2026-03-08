@@ -4,21 +4,13 @@ Provides educational content about refactoring, best practices, code analysis, e
 Location: OPTICODE-AI-SERVICES/IT22606860-code-refactor-python/learning_api.py
 """
 
-import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from typing import Dict, List
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for React
 
-# Configure CORS - Allow requests from frontend
-CORS(app, resources={
-    r"/api/*": {
-        "origins": ["http://localhost:5173", "http://localhost:3000", "http://localhost:5000"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-})
 
 # ============================================
 # EDUCATIONAL CONTENT DATABASE
@@ -546,7 +538,4 @@ if __name__ == '__main__':
     print(f"[SERVER] Running on: http://localhost:8002")
     print("="*70 + "\n")
     
-    # Check if running under run_backend.py (FLASK_DEBUG=0 disables debug/reloader)
-    debug_mode = os.environ.get('FLASK_DEBUG', '1') != '0'
-    # Never use reloader when started via subprocess to avoid FD issues
-    app.run(host='0.0.0.0', port=8002, debug=debug_mode, use_reloader=False)
+    app.run(host='0.0.0.0', port=8002, debug=True)

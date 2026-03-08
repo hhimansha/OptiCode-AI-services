@@ -10,32 +10,35 @@ import time
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from openai import OpenAI
 import traceback
 from typing import List, Dict, Optional
-
-# Centralized LLM configuration - change API key in llm_config.py
-from llm_config import LLM_CONFIG, get_llm_client, print_llm_config
 
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)
 
-# Configuration (from centralized llm_config.py)
+# Configuration
 PORT = int(os.getenv('LLM_PORT', 8001))
-MODEL = LLM_CONFIG['chat_model_name']  # Chat uses a different model
-MAX_TOKENS = LLM_CONFIG['max_tokens']
-TEMPERATURE = LLM_CONFIG['temperature']
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY') or os.getenv('OPENROUTER_API_KEY')
+BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1')
+MODEL = os.getenv('LLM_MODEL', 'deepseek/deepseek-chat')
+MAX_TOKENS = int(os.getenv('MAX_TOKENS', 2000))
+TEMPERATURE = float(os.getenv('TEMPERATURE', 0.7))
 
-# Initialize LLM client from centralized config
-client = get_llm_client()
-if client:
+# Initialize OpenAI client
+if OPENAI_API_KEY:
+    client = OpenAI(
+        api_key=OPENAI_API_KEY,
+        base_url=BASE_URL
+    )
     LLM_AVAILABLE = True
-    print(f"[LLM] ✅ LLM client loaded from llm_config.py (chat model: {MODEL})")
+    print(f"[LLM] ✅ LLM client initialized with model: {MODEL}")
 else:
+    client = None
     LLM_AVAILABLE = False
-    print("[LLM] ⚠️ WARNING: LLM client failed. Check API key in llm_config.py.")
-
-print_llm_config()
+    print("[LLM] ⚠️ WARNING: No API key found. LLM features will be disabled.")
+    print("[LLM] Set OPENAI_API_KEY or OPENROUTER_API_KEY environment variable.")
 
 # In-memory chat history storage (replace with database in production)
 chat_history = []
@@ -107,9 +110,9 @@ Focus on the specified area (memory/performance/quality/general). Provide code e
 # HELPER FUNCTIONS
 # ============================================
 
-def call_chat_llm(messages: List[Dict], max_tokens: int = MAX_TOKENS, temperature: float = TEMPERATURE) -> str:
+def call_llm(messages: List[Dict], max_tokens: int = MAX_TOKENS, temperature: float = TEMPERATURE) -> str:
     """
-    Call the LLM API with the given messages (using chat model)
+    Call the LLM API with the given messages
     
     Args:
         messages: List of message dicts with 'role' and 'content'
@@ -120,11 +123,10 @@ def call_chat_llm(messages: List[Dict], max_tokens: int = MAX_TOKENS, temperatur
         str: LLM response text
     """
     if not LLM_AVAILABLE:
-        return "LLM service is not available. Please check API key in llm_config.py."
+        return "LLM service is not available. Please configure OPENAI_API_KEY or OPENROUTER_API_KEY."
     
     try:
         response = client.chat.completions.create(
-            extra_headers=LLM_CONFIG['extra_headers'],
             model=MODEL,
             messages=messages,
             max_tokens=max_tokens,
@@ -205,7 +207,7 @@ def chat():
         messages.append({'role': 'user', 'content': user_message})
         
         # Call LLM
-        response_text = call_chat_llm(messages)
+        response_text = call_llm(messages)
         
         # Determine analysis type from message content
         analysis_type = 'general'
@@ -380,7 +382,7 @@ Be specific with numbers and measurements. Respond with valid JSON only."""
             {'role': 'user', 'content': analysis_prompt}
         ]
         
-        response_text = call_chat_llm(messages, max_tokens=3000, temperature=0.3)
+        response_text = call_llm(messages, max_tokens=3000, temperature=0.3)
         
         # Try to parse JSON from response
         import json
@@ -514,7 +516,7 @@ Provide practical, actionable advice with code examples."""
             {'role': 'user', 'content': insights_prompt}
         ]
         
-        response_text = call_chat_llm(messages, max_tokens=2500, temperature=0.4)
+        response_text = call_llm(messages, max_tokens=2500, temperature=0.4)
         
         print(f"[LLM] Insights generated")
         
@@ -553,7 +555,7 @@ def health():
     Response:
         {
             "status": "healthy",
-            "model": MODEL,
+            "model": "deepseek/deepseek-chat",
             "version": "1.0.0",
             "uptime": 3600,
             "llmAvailable": true

@@ -115,41 +115,26 @@ class ExtractComplexExpressions(ast.NodeTransformer):
         self.extracted_vars = []
         self.counter = 0
     
-    def visit_FunctionDef(self, node):
+    def visit_Return(self, node):
+        """Extract complex return expressions"""
         self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
+        
+        if node.value and self._is_complex(node.value):
+            var_name = f"result_{self.counter}"
+            self.counter += 1
+            
+            # Create assignment
+            assign = ast.Assign(
+                targets=[ast.Name(id=var_name, ctx=ast.Store())],
+                value=node.value
+            )
+            
+            # Update return to use variable
+            node.value = ast.Name(id=var_name, ctx=ast.Load())
+            
+            self.extracted_vars.append(assign)
+        
         return node
-
-    def visit_AsyncFunctionDef(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def _rewrite_body(self, body):
-        if not body:
-            return body
-
-        new_body = []
-        for stmt in body:
-            if isinstance(stmt, ast.Return) and stmt.value and self._is_complex(stmt.value):
-                var_name = f"result_{self.counter}"
-                self.counter += 1
-
-                assign = ast.Assign(
-                    targets=[ast.Name(id=var_name, ctx=ast.Store())],
-                    value=stmt.value
-                )
-                ast.copy_location(assign, stmt)
-
-                new_return = ast.Return(value=ast.Name(id=var_name, ctx=ast.Load()))
-                ast.copy_location(new_return, stmt)
-
-                self.extracted_vars.append(assign)
-                new_body.extend([assign, new_return])
-            else:
-                new_body.append(stmt)
-
-        return new_body
     
     def _is_complex(self, node):
         """Check if expression is complex"""
@@ -191,339 +176,6 @@ class ImproveLoops(ast.NodeTransformer):
                         pass
         
         return node
-
-
-class OptimizeSumLoops(ast.NodeTransformer):
-    """Replace accumulator loops with sum() generator expressions"""
-
-    def __init__(self):
-        super().__init__()
-        self.optimizations = []
-
-    def visit_FunctionDef(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def visit_AsyncFunctionDef(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def visit_Module(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def _rewrite_body(self, body):
-        if not body:
-            return body
-
-        new_body = []
-        i = 0
-        while i < len(body):
-            if i + 1 < len(body):
-                assign_node = body[i]
-                loop_node = body[i + 1]
-
-                rewritten = self._try_rewrite_sum_loop(assign_node, loop_node)
-                if rewritten is not None:
-                    new_body.append(rewritten)
-                    i += 2
-                    continue
-
-            new_body.append(body[i])
-            i += 1
-
-        return new_body
-
-    def _try_rewrite_sum_loop(self, assign_node, loop_node):
-        if not isinstance(assign_node, ast.Assign):
-            return None
-        if len(assign_node.targets) != 1:
-            return None
-        if not isinstance(assign_node.targets[0], ast.Name):
-            return None
-        if not isinstance(assign_node.value, ast.Constant) or assign_node.value.value != 0:
-            return None
-
-        if not isinstance(loop_node, ast.For):
-            return None
-        if not isinstance(loop_node.target, ast.Name):
-            return None
-
-        if len(loop_node.body) != 1:
-            return None
-        if_node = loop_node.body[0]
-        if not isinstance(if_node, ast.If):
-            return None
-        if len(if_node.body) != 1 or if_node.orelse:
-            return None
-
-        aug = if_node.body[0]
-        if not isinstance(aug, ast.AugAssign):
-            return None
-        if not isinstance(aug.op, ast.Add):
-            return None
-        if not isinstance(aug.target, ast.Name):
-            return None
-        if not isinstance(aug.value, ast.Name):
-            return None
-
-        accumulator = assign_node.targets[0].id
-        if aug.target.id != accumulator:
-            return None
-
-        iter_var = loop_node.target.id
-        if aug.value.id != iter_var:
-            return None
-
-        comp_test = if_node.test
-        if not isinstance(comp_test, ast.Compare):
-            return None
-        if len(comp_test.ops) != 1 or len(comp_test.comparators) != 1:
-            return None
-        if not isinstance(comp_test.left, ast.Name):
-            return None
-        if comp_test.left.id != iter_var:
-            return None
-        if not isinstance(comp_test.ops[0], ast.Gt):
-            return None
-        if not isinstance(comp_test.comparators[0], ast.Constant):
-            return None
-        if comp_test.comparators[0].value != 0:
-            return None
-
-        gen_exp = ast.GeneratorExp(
-            elt=ast.Name(id=iter_var, ctx=ast.Load()),
-            generators=[
-                ast.comprehension(
-                    target=ast.Name(id=iter_var, ctx=ast.Store()),
-                    iter=loop_node.iter,
-                    ifs=[comp_test],
-                    is_async=0
-                )
-            ]
-        )
-
-        sum_call = ast.Call(func=ast.Name(id='sum', ctx=ast.Load()), args=[gen_exp], keywords=[])
-        rewritten = ast.Assign(targets=[ast.Name(id=accumulator, ctx=ast.Store())], value=sum_call)
-        ast.copy_location(rewritten, loop_node)
-
-        self.optimizations.append({
-            'type': 'sum_generator',
-            'description': f'Replaced loop accumulator with sum() for {accumulator}'
-        })
-
-        return rewritten
-
-
-class OptimizeListAppendLoops(ast.NodeTransformer):
-    """Replace list append loops with list comprehensions"""
-
-    def __init__(self):
-        super().__init__()
-        self.optimizations = []
-
-    def visit_FunctionDef(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def visit_AsyncFunctionDef(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def visit_Module(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def _rewrite_body(self, body):
-        if not body:
-            return body
-
-        new_body = []
-        i = 0
-        while i < len(body):
-            if i + 1 < len(body):
-                assign_node = body[i]
-                loop_node = body[i + 1]
-
-                rewritten = self._try_rewrite_append_loop(assign_node, loop_node)
-                if rewritten is not None:
-                    new_body.append(rewritten)
-                    i += 2
-                    continue
-
-            new_body.append(body[i])
-            i += 1
-
-        return new_body
-
-    def _try_rewrite_append_loop(self, assign_node, loop_node):
-        if not isinstance(assign_node, ast.Assign):
-            return None
-        if len(assign_node.targets) != 1:
-            return None
-        if not isinstance(assign_node.targets[0], ast.Name):
-            return None
-        if not isinstance(assign_node.value, ast.List) or assign_node.value.elts:
-            return None
-
-        if not isinstance(loop_node, ast.For):
-            return None
-        if not isinstance(loop_node.target, ast.Name):
-            return None
-
-        list_name = assign_node.targets[0].id
-        iter_expr = loop_node.iter
-        iter_target = loop_node.target
-
-        append_expr, if_test = self._extract_append(loop_node)
-        if append_expr is None:
-            return None
-
-        comp = ast.ListComp(
-            elt=append_expr,
-            generators=[
-                ast.comprehension(
-                    target=iter_target,
-                    iter=iter_expr,
-                    ifs=[if_test] if if_test is not None else [],
-                    is_async=0
-                )
-            ]
-        )
-
-        rewritten = ast.Assign(targets=[ast.Name(id=list_name, ctx=ast.Store())], value=comp)
-        ast.copy_location(rewritten, loop_node)
-
-        self.optimizations.append({
-            'type': 'list_comprehension',
-            'description': f'Replaced append loop with list comprehension for {list_name}'
-        })
-
-        return rewritten
-
-    def _extract_append(self, loop_node):
-        if len(loop_node.body) != 1:
-            return None, None
-
-        stmt = loop_node.body[0]
-        if isinstance(stmt, ast.Expr) and self._is_append_call(stmt.value):
-            return stmt.value.args[0], None
-
-        if isinstance(stmt, ast.If) and len(stmt.body) == 1 and not stmt.orelse:
-            inner = stmt.body[0]
-            if isinstance(inner, ast.Expr) and self._is_append_call(inner.value):
-                return inner.value.args[0], stmt.test
-
-        return None, None
-
-    def _is_append_call(self, node):
-        if not isinstance(node, ast.Call):
-            return False
-        if not isinstance(node.func, ast.Attribute):
-            return False
-        if node.func.attr != 'append':
-            return False
-        if not isinstance(node.func.value, ast.Name):
-            return False
-        return len(node.args) == 1
-
-
-class SimplifyIfElseAssignments(ast.NodeTransformer):
-    """Simplify if/else assignments and returns into one-line expressions"""
-
-    def __init__(self):
-        super().__init__()
-        self.optimizations = []
-
-    def visit_FunctionDef(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def visit_AsyncFunctionDef(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def visit_Module(self, node):
-        self.generic_visit(node)
-        node.body = self._rewrite_body(node.body)
-        return node
-
-    def _rewrite_body(self, body):
-        if not body:
-            return body
-
-        new_body = []
-        for stmt in body:
-            if isinstance(stmt, ast.If):
-                rewritten = self._try_rewrite_if(stmt)
-                if rewritten is not None:
-                    new_body.append(rewritten)
-                    continue
-            new_body.append(stmt)
-        return new_body
-
-    def _try_rewrite_if(self, if_node):
-        if len(if_node.body) != 1 or len(if_node.orelse) != 1:
-            return None
-
-        body_stmt = if_node.body[0]
-        else_stmt = if_node.orelse[0]
-
-        assign_node = self._rewrite_assign(if_node.test, body_stmt, else_stmt)
-        if assign_node is not None:
-            return assign_node
-
-        return_node = self._rewrite_return(if_node.test, body_stmt, else_stmt)
-        if return_node is not None:
-            return return_node
-
-        return None
-
-    def _rewrite_assign(self, test, body_stmt, else_stmt):
-        if not isinstance(body_stmt, ast.Assign) or not isinstance(else_stmt, ast.Assign):
-            return None
-        if len(body_stmt.targets) != 1 or len(else_stmt.targets) != 1:
-            return None
-        if not isinstance(body_stmt.targets[0], ast.Name):
-            return None
-        if not isinstance(else_stmt.targets[0], ast.Name):
-            return None
-        if body_stmt.targets[0].id != else_stmt.targets[0].id:
-            return None
-
-        ifexp = ast.IfExp(test=test, body=body_stmt.value, orelse=else_stmt.value)
-        assign = ast.Assign(targets=[ast.Name(id=body_stmt.targets[0].id, ctx=ast.Store())], value=ifexp)
-        ast.copy_location(assign, body_stmt)
-
-        self.optimizations.append({
-            'type': 'ifexp_assignment',
-            'description': f"Simplified assignment to {body_stmt.targets[0].id}"
-        })
-
-        return assign
-
-    def _rewrite_return(self, test, body_stmt, else_stmt):
-        if not isinstance(body_stmt, ast.Return) or not isinstance(else_stmt, ast.Return):
-            return None
-
-        ifexp = ast.IfExp(test=test, body=body_stmt.value, orelse=else_stmt.value)
-        new_return = ast.Return(value=ifexp)
-        ast.copy_location(new_return, body_stmt)
-
-        self.optimizations.append({
-            'type': 'ifexp_return',
-            'description': 'Simplified return if/else'
-        })
-
-        return new_return
 
 
 class AddTypeHints(ast.NodeTransformer):
@@ -653,15 +305,6 @@ def refactor_code_ast(code: str, options: Dict = None) -> Dict:
                 'type': 'simplify_conditionals',
                 'description': 'Simplified conditional expressions'
             })
-
-            simplifier = SimplifyIfElseAssignments()
-            tree = simplifier.visit(tree)
-            if simplifier.optimizations:
-                changes.append({
-                    'type': 'ifexp_simplification',
-                    'description': f"Simplified {len(simplifier.optimizations)} if/else blocks",
-                    'count': len(simplifier.optimizations)
-                })
         
         if options.get('remove_unused', False):
             analyzer = RemoveUnusedVariables()
@@ -683,32 +326,6 @@ def refactor_code_ast(code: str, options: Dict = None) -> Dict:
                     'type': 'extract_complex',
                     'description': f'Extracted {len(transformer.extracted_vars)} complex expressions',
                     'count': len(transformer.extracted_vars)
-                })
-
-        if options.get('improve_loops', True):
-            transformer = ImproveLoops()
-            tree = transformer.visit(tree)
-            changes.append({
-                'type': 'improve_loops',
-                'description': 'Improved loop constructs'
-            })
-
-            optimizer = OptimizeSumLoops()
-            tree = optimizer.visit(tree)
-            if optimizer.optimizations:
-                changes.append({
-                    'type': 'sum_generator',
-                    'description': f"Replaced {len(optimizer.optimizations)} accumulator loops with sum()",
-                    'count': len(optimizer.optimizations)
-                })
-
-            list_optimizer = OptimizeListAppendLoops()
-            tree = list_optimizer.visit(tree)
-            if list_optimizer.optimizations:
-                changes.append({
-                    'type': 'list_comprehension',
-                    'description': f"Replaced {len(list_optimizer.optimizations)} append loops with list comprehensions",
-                    'count': len(list_optimizer.optimizations)
                 })
         
         if options.get('refactor_magic_numbers', True):
