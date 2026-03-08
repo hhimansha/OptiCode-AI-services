@@ -8,6 +8,7 @@ from sklearn.metrics import classification_report
 import joblib
 from sklearn.metrics import accuracy_score
 
+
 print(" Loading dataset...")
 
 # Load dataset
@@ -28,7 +29,11 @@ feature_cols = [
     "lines_of_code",
     "avg_line_length",
     "time_idle",
-    "edits_last_30s"
+    "edits_last_30s",
+    "cyclomatic_est",
+    "max_nesting_depth", 
+    "num_recursion_calls",
+    "num_try"
 ]
 
 # ----------------------------
@@ -41,6 +46,12 @@ label_cols = [
     "label_logic_error",
     "label_idle_stuck"
 ]
+
+# ── Add AST columns to dataset if not present ──────────────────────────────
+# (for old CSV rows that don't have AST columns yet, fill with 0)
+for col in ["cyclomatic_est", "max_nesting_depth", "num_recursion_calls", "num_try"]:
+    if col not in df.columns:
+        df[col] = 0
 
 X = df[feature_cols]
 y = df[label_cols]
@@ -89,7 +100,8 @@ print(f"Exact Match Accuracy: {exact_accuracy:.2f}%")
 print(classification_report(
     y_test,
     y_pred,
-    target_names=label_cols
+    target_names=label_cols, 
+    zero_division=0
 ))
 
 # ----------------------------

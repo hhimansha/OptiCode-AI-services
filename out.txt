@@ -1,0 +1,1 @@
+{"weaknesses":{"syntax_error":1,"missing_base_case":0,"infinite_loop":0,"logic_error":0,"idle_stuck":0},"primary":"syntax_error","hints":["Parser error."],"output":"","error":"SyntaxError: Check your indentation and syntax."}
