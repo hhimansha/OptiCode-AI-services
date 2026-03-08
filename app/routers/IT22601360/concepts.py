@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.services.llm_service import extract_concepts
+from app.services.IT22601360.llm_service import extract_concepts
 
 router = APIRouter(prefix="/concepts", tags=["Concept Extraction"])
 
