@@ -1,21 +1,34 @@
-# Existing packages
+# Web Framework
 Flask==3.0.0
 flask-cors==4.0.0
-transformers==4.35.0
-torch==2.1.0
-sentencepiece==0.1.99
 
-# NEW - Code Analysis Tools
+# AI/ML Models (Keep for LLM features)
+transformers>=4.35.0
+torch>=2.9.0
+sentencepiece>=0.1.99
+openai>=1.50.0          # For DeepSeek API (Python 3.14 compatible)
+
+# AST and Code Analysis
+astor==0.8.1            # AST to source code conversion
+black==23.12.1          # Code formatter
+isort==5.13.2           # Import sorter
+
+# Code Quality & Analysis Tools
 bandit==1.7.5           # Security scanner
 radon==6.0.1            # Complexity metrics
 pylint==3.0.3           # Code quality checker
 vulture==2.10           # Dead code detector
 autopep8==2.0.4         # Auto-formatter
+flake8==7.0.0           # Style guide enforcement
+mypy==1.8.0             # Type checking
+pycodestyle==2.11.1     # PEP 8 checker
+pydocstyle==6.3.0       # Docstring checker
+mccabe==0.7.0           # Complexity checker
 
-# NEW - Testing
+# Testing
 pytest==7.4.3           # Test framework
 pytest-cov==4.1.0       # Coverage reporting
 
-# NEW - Database & Utilities
-sqlalchemy==2.0.23      # Database ORM
+# Utilities
 python-dotenv==1.0.0    # Environment variables
+colorama==0.4.6         # Colored terminal output
