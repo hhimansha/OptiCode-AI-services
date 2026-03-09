@@ -1,4 +1,4 @@
-import google.genai as genai
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import json
@@ -8,8 +8,14 @@ load_dotenv()
 
 # Configure the API
 try:
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    print("✅ Gemini AI client initialized successfully")
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        genai.configure(api_key=api_key)
+        print("✅ Gemini AI client initialized successfully")
+        client = True
+    else:
+        print("⚠️ Gemini not initialized: Gemini API key not found. Set GEMINI_API_KEY environment variable or pass api_key parameter.")
+        client = None
 except Exception as e:
     print(f"❌ Error initializing Gemini AI client: {e}")
     client = None
@@ -35,10 +41,10 @@ def extract_concepts(code: str) -> Dict[str, Any]:
     
     try:
         # Generate content
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt,
-            config={
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(
+            prompt,
+            generation_config={
                 "temperature": 0.1,
                 "max_output_tokens": 1000,
             }
