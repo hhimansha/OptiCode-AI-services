@@ -68,7 +68,7 @@ def generate_task(prompt: str) -> str:
 
     try:
         # IMPORTANT: use the Gemini model name exactly like this
-        model = gen.GenerativeModel("models/gemini-2.0-flash-001")
+        model = gen.GenerativeModel("models/gemini-3.1-flash-lite-preview")
 
         response = model.generate_content(
             prompt,

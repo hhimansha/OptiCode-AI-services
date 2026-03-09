@@ -1,0 +1,137 @@
+[
+  {
+    "id": 1,
+    "name": "Correct Answer Detection",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 2,
+    "name": "Hardcoded Value Detection",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 3,
+    "name": "Missing Print Detection",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 4,
+    "name": "Idle/Stuck Detection (high idle)",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 5,
+    "name": "Infinite Loop Detection",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 6,
+    "name": "No Function Definition",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 7,
+    "name": "Correct Function Definition",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 8,
+    "name": "Syntax/Indentation Error",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 9,
+    "name": "Missing Base Case (Recursion)",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 10,
+    "name": "Logic Error (off-by-one)",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 11,
+    "name": "Wrong Task Answer",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 12,
+    "name": "Beginner Skill Level Hints",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 13,
+    "name": "Advanced Skill Level Hints",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 14,
+    "name": "Empty Code \u2014 Low Idle Time",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  },
+  {
+    "id": 15,
+    "name": "Correct Recursion With Base Case",
+    "status": "ERROR",
+    "primary": null,
+    "hints": [],
+    "output": "",
+    "error": "HTTPConnectionPool(host='localhost', port=8002): Max retries exceeded with url: /predict (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=8002): Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it\"))"
+  }
+]

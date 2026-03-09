@@ -1,7 +1,11 @@
 """
 Code Preprocessor Service
-Handles code parsing, tokenization, and structural analysis
 Student: IT22601360
+
+Fix applied:
+  preprocess() now passes `language` to _detect_patterns() so non-Python
+  files (JS, Java, etc.) don't silently attempt Python AST parsing.
+  The AST path now only runs when language == "python".
 """
 
 import re
@@ -15,105 +19,91 @@ from app.utils.constants import SUPPORTED_LANGUAGES, KNOWN_CONCEPTS
 class CodeMetrics:
     """Metrics extracted from code"""
     lines_of_code: int = 0
-    blank_lines: int = 0
+    blank_lines:   int = 0
     comment_lines: int = 0
-    functions: List[str] = field(default_factory=list)
-    classes: List[str] = field(default_factory=list)
-    imports: List[str] = field(default_factory=list)
-    variables: List[str] = field(default_factory=list)
+    functions:  List[str] = field(default_factory=list)
+    classes:    List[str] = field(default_factory=list)
+    imports:    List[str] = field(default_factory=list)
+    variables:  List[str] = field(default_factory=list)
 
 
 @dataclass
 class PreprocessedCode:
     """Result of code preprocessing"""
-    original_code: str
-    cleaned_code: str
-    language: str
-    metrics: CodeMetrics
+    original_code:     str
+    cleaned_code:      str
+    language:          str
+    metrics:           CodeMetrics
     detected_patterns: Dict[str, List[str]]
     structural_summary: Dict
 
 
 class CodePreprocessor:
     """
-    Preprocesses code for concept extraction
-    It analyzes code structure and identifies patterns BEFORE calling Gemini
+    Preprocesses code for concept extraction.
+    Analyses code structure and identifies patterns BEFORE calling Gemini.
     """
-    
+
     def __init__(self):
         self.supported_languages = SUPPORTED_LANGUAGES
-        self.known_concepts = KNOWN_CONCEPTS
-    
+        self.known_concepts      = KNOWN_CONCEPTS
+
     def preprocess(self, code: str, language: str = "python") -> PreprocessedCode:
         """
-        Main preprocessing pipeline
-        
-        Args:
-            code: Raw source code string
-            language: Programming language
-            
-        Returns:
-            PreprocessedCode object with all analysis results
+        Main preprocessing pipeline.
+
+        Returns PreprocessedCode with:
+          .metrics             — CodeMetrics (lines_of_code, functions, classes, imports)
+          .detected_patterns   — { "data_structures": [], "algorithms": [], ... }
+          .structural_summary  — { "metrics": {}, "structure": {}, "pre_detected_patterns": {}, ... }
         """
-        # Step 1: Clean the code
         cleaned_code = self._clean_code(code)
-        
-        # Step 2: Extract metrics based on language
+
         if language == "python":
             metrics = self._extract_python_metrics(code)
         else:
             metrics = self._extract_generic_metrics(code, language)
-        
-        # Step 3: Detect known patterns (rule-based, before LLM)
-        detected_patterns = self._detect_patterns(code)
-        
-        # Step 4: Generate structural summary
+
+        # FIX: pass language so _detect_patterns only runs AST path for Python
+        detected_patterns = self._detect_patterns(code, language)
+
         structural_summary = self._generate_summary(code, metrics, detected_patterns)
-        
+
         return PreprocessedCode(
             original_code=code,
             cleaned_code=cleaned_code,
             language=language,
             metrics=metrics,
             detected_patterns=detected_patterns,
-            structural_summary=structural_summary
+            structural_summary=structural_summary,
         )
-    
+
     def _clean_code(self, code: str) -> str:
-        """Remove excessive whitespace and normalize code"""
-        # Remove trailing whitespace from each line
+        """Remove excessive whitespace and normalise code."""
         lines = [line.rstrip() for line in code.split('\n')]
-        
-        # Remove excessive blank lines (keep max 2 consecutive)
-        cleaned_lines = []
+        cleaned = []
         blank_count = 0
         for line in lines:
             if line.strip() == '':
                 blank_count += 1
                 if blank_count <= 2:
-                    cleaned_lines.append(line)
+                    cleaned.append(line)
             else:
                 blank_count = 0
-                cleaned_lines.append(line)
-        
-        return '\n'.join(cleaned_lines)
-    
+                cleaned.append(line)
+        return '\n'.join(cleaned)
+
     def _extract_python_metrics(self, code: str) -> CodeMetrics:
-        """
-        AST-based extraction for Python - More accurate
-        """
+        """AST-based extraction for Python."""
         metrics = CodeMetrics()
-        
         lines = code.split('\n')
         metrics.lines_of_code = len([l for l in lines if l.strip()])
-        metrics.blank_lines = len([l for l in lines if not l.strip()])
+        metrics.blank_lines   = len([l for l in lines if not l.strip()])
         metrics.comment_lines = len([l for l in lines if l.strip().startswith('#')])
-        
+
         try:
             tree = ast.parse(code)
-            
             for node in ast.walk(tree):
-                # Extract imports
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         metrics.imports.append(alias.name)
@@ -121,165 +111,98 @@ class CodePreprocessor:
                     module = node.module or ''
                     for alias in node.names:
                         metrics.imports.append(f"{module}.{alias.name}")
-                
-                # Extract class names
                 elif isinstance(node, ast.ClassDef):
                     metrics.classes.append(node.name)
-                
-                # Extract function names
-                elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     metrics.functions.append(node.name)
-                
-                # Extract variable assignments (top-level)
                 elif isinstance(node, ast.Assign):
                     for target in node.targets:
                         if isinstance(target, ast.Name):
                             metrics.variables.append(target.id)
-                            
         except SyntaxError:
-            # Fallback to regex if AST parsing fails
             metrics = self._extract_generic_metrics(code, "python")
-        
+
         return metrics
-    
+
     def _extract_generic_metrics(self, code: str, language: str) -> CodeMetrics:
-        """
-        Regex-based extraction for other languages
-        """
+        """Regex-based extraction for non-Python languages."""
         metrics = CodeMetrics()
-        
         lines = code.split('\n')
         metrics.lines_of_code = len([l for l in lines if l.strip()])
-        metrics.blank_lines = len([l for l in lines if not l.strip()])
-        
-        # Comment detection based on language
-        lang_config = self.supported_languages.get(language, {})
+        metrics.blank_lines   = len([l for l in lines if not l.strip()])
+
+        lang_config   = self.supported_languages.get(language, {})
         comment_single = lang_config.get('comment_single', '//')
-        
-        metrics.comment_lines = len([
-            l for l in lines 
-            if l.strip().startswith(comment_single)
-        ])
-        
-        # Generic patterns
-        # Functions
+        metrics.comment_lines = len([l for l in lines if l.strip().startswith(comment_single)])
+
         func_patterns = [
-            r'def\s+(\w+)\s*\(',           # Python
-            r'function\s+(\w+)\s*\(',       # JavaScript
-            r'(?:public|private|protected)?\s*(?:static)?\s*\w+\s+(\w+)\s*\([^)]*\)\s*{',  # Java/C++
-            r'func\s+(\w+)\s*\(',           # Go
-            r'fn\s+(\w+)\s*\(',             # Rust
+            r'def\s+(\w+)\s*\(',
+            r'function\s+(\w+)\s*\(',
+            r'(?:public|private|protected)?\s*(?:static)?\s*\w+\s+(\w+)\s*\([^)]*\)\s*{',
+            r'func\s+(\w+)\s*\(',
+            r'fn\s+(\w+)\s*\(',
         ]
-        
         for pattern in func_patterns:
-            matches = re.findall(pattern, code)
-            metrics.functions.extend(matches)
-        
-        # Classes
+            metrics.functions.extend(re.findall(pattern, code))
+
         class_patterns = [
-            r'class\s+(\w+)',               # Python/Java/C++
-            r'struct\s+(\w+)',              # C/C++/Go/Rust
-            r'interface\s+(\w+)',           # Java/TypeScript
+            r'class\s+(\w+)',
+            r'struct\s+(\w+)',
+            r'interface\s+(\w+)',
         ]
-        
         for pattern in class_patterns:
-            matches = re.findall(pattern, code)
-            metrics.classes.extend(matches)
-        
-        # Imports
+            metrics.classes.extend(re.findall(pattern, code))
+
         import_patterns = [
-            r'import\s+([\w.]+)',           # Python/Java
-            r'from\s+([\w.]+)\s+import',    # Python
-            r'require\([\'"](.+?)[\'"]\)',  # Node.js
-            r'import\s+.*?from\s+[\'"](.+?)[\'"]',  # ES6
-            r'#include\s*[<"](.+?)[>"]',    # C/C++
+            r'import\s+([\w.]+)',
+            r'from\s+([\w.]+)\s+import',
+            r'require\([\'"](.+?)[\'"]\)',
+            r'import\s+.*?from\s+[\'"](.+?)[\'"]',
+            r'#include\s*[<"](.+?)[>"]',
         ]
-        
         for pattern in import_patterns:
-            matches = re.findall(pattern, code)
-            metrics.imports.extend(matches)
-        
+            metrics.imports.extend(re.findall(pattern, code))
+
         return metrics
-    
-    # def _detect_patterns(self, code: str) -> Dict[str, List[str]]:
-    #     """
-    #     Rule-based pattern detection
-        
-    #     This identifies concepts BEFORE sending to LLM
-    #     Reduces API calls and improves accuracy
-    #     """
-    #     detected = {
-    #         "data_structures": [],
-    #         "algorithms": [],
-    #         "design_patterns": [],
-    #         "architectures": [],
-    #         "paradigms": [],
-    #         "programming_concepts": []
-    #     }
-        
-    #     code_lower = code.lower()
-        
-    #     for category, concepts in self.known_concepts.items():
-    #         for concept_name, patterns in concepts.items():
-    #             for pattern in patterns:
-    #                 # Check if pattern exists in code
-    #                 if pattern.lower() in code_lower:
-    #                     if concept_name not in detected[category]:
-    #                         detected[category].append(concept_name)
-    #                     break
-                    
-    #                 # Try regex pattern matching
-    #                 try:
-    #                     if re.search(pattern, code, re.IGNORECASE):
-    #                         if concept_name not in detected[category]:
-    #                             detected[category].append(concept_name)
-    #                         break
-    #                 except re.error:
-    #                     continue
-        
-    #     return detected
+
     def _detect_patterns(self, code: str, language: str = "python") -> Dict[str, List[str]]:
         """
-        Enhanced pattern detection with AST for Python
+        Enhanced pattern detection.
+        AST path runs only when language == "python" to avoid wasted work
+        (and silent SyntaxErrors) on JS/Java/etc. files.
         """
         detected = {
-            "data_structures": [],
-            "algorithms": [],
-            "design_patterns": [],
-            "architectures": [],
-            "paradigms": [],
-            "programming_concepts": []
+            "data_structures":    [],
+            "algorithms":         [],
+            "design_patterns":    [],
+            "architectures":      [],
+            "paradigms":          [],
+            "programming_concepts": [],
         }
-        
-        # For Python, use AST-based detection
+
+        # AST-based detection — Python only
         if language == "python":
             try:
                 from app.services.IT22601360.ast_analyzer import ASTAnalyzer
-                
-                analysis = ASTAnalyzer.analyze_python(code)
+                analysis    = ASTAnalyzer.analyze_python(code)
                 ast_concepts = ASTAnalyzer.convert_to_concepts(analysis)
-                
-                # Merge AST concepts
                 for category in detected:
                     detected[category].extend(ast_concepts.get(category, []))
-                    detected[category] = list(set(detected[category]))  # Remove duplicates
-                    
+                    detected[category] = list(set(detected[category]))
             except ImportError:
                 print("AST analyzer not available, using regex detection")
-        
-        # Fallback to regex detection for all languages
+            except Exception as e:
+                print(f"AST detection failed: {e}")
+
+        # Regex/keyword patterns — all languages
         code_lower = code.lower()
-        
         for category, concepts in self.known_concepts.items():
             for concept_name, patterns in concepts.items():
                 for pattern in patterns:
-                    # Check if pattern exists in code
                     if pattern.lower() in code_lower:
                         if concept_name not in detected[category]:
                             detected[category].append(concept_name)
                         break
-                    
-                    # Try regex pattern matching
                     try:
                         if re.search(pattern, code, re.IGNORECASE):
                             if concept_name not in detected[category]:
@@ -287,76 +210,72 @@ class CodePreprocessor:
                             break
                     except re.error:
                         continue
-        
+
         return detected
+
     def _generate_summary(
-        self, 
-        code: str, 
-        metrics: CodeMetrics, 
-        patterns: Dict[str, List[str]]
+        self,
+        code: str,
+        metrics: CodeMetrics,
+        patterns: Dict[str, List[str]],
     ) -> Dict:
         """
-        Generate a structural summary for LLM context
+        Generate structural summary for LLM context.
+
+        Returns dict with keys:
+          "metrics"              → total_lines, functions_count, classes_count, imports_count
+          "structure"            → functions[], classes[], imports[]
+          "pre_detected_patterns"→ same as patterns arg
+          "pattern_count"        → int
+          "estimated_complexity" → "simple" | "moderate" | "complex"
         """
-        # Count total detected patterns
         total_patterns = sum(len(v) for v in patterns.values())
-        
-        # Determine code complexity (simple heuristic)
+
         complexity = "simple"
-        if metrics.lines_of_code > 100:
+        if metrics.lines_of_code > 100 or len(metrics.classes) > 3 or len(metrics.functions) > 10:
             complexity = "complex"
         elif metrics.lines_of_code > 50:
             complexity = "moderate"
-        
-        if len(metrics.classes) > 3 or len(metrics.functions) > 10:
-            complexity = "complex"
-        
+
         return {
             "metrics": {
-                "total_lines": metrics.lines_of_code,
+                "total_lines":     metrics.lines_of_code,
                 "functions_count": len(metrics.functions),
-                "classes_count": len(metrics.classes),
-                "imports_count": len(metrics.imports)
+                "classes_count":   len(metrics.classes),
+                "imports_count":   len(metrics.imports),
             },
             "structure": {
-                "functions": metrics.functions[:20],  # Limit for LLM context
-                "classes": metrics.classes[:10],
-                "imports": metrics.imports[:20]
+                "functions": metrics.functions[:20],
+                "classes":   metrics.classes[:10],
+                "imports":   metrics.imports[:20],
             },
             "pre_detected_patterns": patterns,
-            "pattern_count": total_patterns,
-            "estimated_complexity": complexity
+            "pattern_count":         total_patterns,
+            "estimated_complexity":  complexity,
         }
-    
+
     def detect_language(self, code: str, filename: Optional[str] = None) -> str:
-        """
-        Auto-detect programming language from code or filename
-        """
+        """Auto-detect programming language from filename or code patterns."""
         if filename:
             ext = '.' + filename.split('.')[-1].lower()
             for lang, config in self.supported_languages.items():
                 if ext in config.get('extensions', []):
                     return lang
-        
-        # Heuristic detection from code patterns
+
         patterns = {
-            'python': [r'def\s+\w+\s*\(', r'import\s+\w+', r'print\s*\(', r':\s*$'],
+            'python':     [r'def\s+\w+\s*\(', r'import\s+\w+', r'print\s*\(', r':\s*$'],
             'javascript': [r'const\s+\w+', r'let\s+\w+', r'function\s+\w+', r'=>', r'console\.log'],
             'typescript': [r'interface\s+\w+', r':\s*\w+\[\]', r'<\w+>'],
-            'java': [r'public\s+class', r'public\s+static\s+void\s+main', r'System\.out'],
-            'cpp': [r'#include\s*<', r'std::', r'cout\s*<<', r'int\s+main\s*\('],
-            'c': [r'#include\s*<stdio', r'printf\s*\(', r'int\s+main\s*\('],
-            'go': [r'package\s+main', r'func\s+\w+', r'fmt\.'],
-            'rust': [r'fn\s+main', r'let\s+mut', r'println!'],
+            'java':       [r'public\s+class', r'public\s+static\s+void\s+main', r'System\.out'],
+            'cpp':        [r'#include\s*<', r'std::', r'cout\s*<<', r'int\s+main\s*\('],
+            'c':          [r'#include\s*<stdio', r'printf\s*\(', r'int\s+main\s*\('],
+            'go':         [r'package\s+main', r'func\s+\w+', r'fmt\.'],
+            'rust':       [r'fn\s+main', r'let\s+mut', r'println!'],
         }
-        
         scores = {lang: 0 for lang in patterns}
-        
         for lang, lang_patterns in patterns.items():
             for pattern in lang_patterns:
                 if re.search(pattern, code):
                     scores[lang] += 1
-        
-        # Return language with highest score
-        best_lang = max(scores, key=scores.get)
-        return best_lang if scores[best_lang] > 0 else 'python'
+        best = max(scores, key=scores.get)
+        return best if scores[best] > 0 else 'python'
