@@ -485,6 +485,18 @@ def risk_analyze():
         # Add chart data to response
         result['chart_data'] = chart_data
         
+        # Log what we're returning
+        print(f"[RISK ANALYSIS] Returning data structure:")
+        print(f"  - risk_analysis: {list(result.get('risk_analysis', {}).keys())}")
+        print(f"  - comparison_metrics: {list(result.get('comparison_metrics', {}).keys())}")
+        print(f"  - chart_data: {list(result.get('chart_data', {}).keys())}")
+        
+        # Ensure comparison_metrics is present
+        if 'comparison_metrics' not in result or not result['comparison_metrics']:
+            print("[WARNING] comparison_metrics missing, calculating now...")
+            result['comparison_metrics'] = calculate_comparison_metrics(original_code, refactored_code)
+            print(f"[RISK ANALYSIS] Added comparison_metrics: {list(result['comparison_metrics'].keys())}")
+        
         # Calculate total time
         total_time = (time.time() - start_time) * 1000
         
@@ -493,6 +505,7 @@ def risk_analyze():
         
         print(f"[RISK ANALYSIS] Total time: {total_time:.0f}ms")
         print(f"[RISK ANALYSIS] Risk Score: {risk_score}")
+        print(f"[RISK ANALYSIS] Comparison Metrics Keys: {list(result.get('comparison_metrics', {}).keys())}")
         print(f"{'='*70}\n")
         
         return jsonify(result)

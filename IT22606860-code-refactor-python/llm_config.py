@@ -25,22 +25,28 @@ from typing import Optional
 
 LLM_CONFIG = {
     # ── API Credentials ──────────────────────────────────────────
-    # Change this ONE key and all services will use it
+    # IMPORTANT: Set your API key in environment variable or .env file
+    # Option 1: OpenRouter (supports multiple models) - Get key at https://openrouter.ai/
+    # Option 2: Direct DeepSeek API - Get key at https://platform.deepseek.com/
     'api_key': os.getenv(
-        'OPENROUTER_API_KEY',
-        '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'
+        'LLM_API_KEY',  # Use LLM_API_KEY for both OpenRouter and DeepSeek
+        os.getenv('OPENROUTER_API_KEY', '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')  # Fallback to hardcoded key
     ),
     
     # ── API Base URL ─────────────────────────────────────────────
+    # Option 1: https://openrouter.ai/api/v1 (for OpenRouter)
+    # Option 2: https://api.deepseek.com/v1 (for direct DeepSeek API)
     'base_url': os.getenv(
-        'OPENAI_BASE_URL',
-        'https://openrouter.ai/api/v1'
+        'LLM_BASE_URL',
+        os.getenv('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1')
     ),
     
     # ── Model for Refactoring & Risk Analysis ────────────────────
+    # For OpenRouter: deepseek/deepseek-r1-0528:free or deepseek/deepseek-chat
+    # For Direct DeepSeek API: deepseek-chat or deepseek-coder
     'model_name': os.getenv(
         'LLM_MODEL',
-        'deepseek/deepseek-r1-0528:free'
+        'deepseek/deepseek-chat'  # Changed to more reliable model
     ),
     
     # ── Model for Chat Assistant ─────────────────────────────────
@@ -98,6 +104,20 @@ def get_llm_client(force_new: bool = False) -> Optional[object]:
     
     try:
         from openai import OpenAI
+        
+        # Validate API key is set
+        if not LLM_CONFIG['api_key'] or LLM_CONFIG['api_key'] == '':
+            raise ValueError(
+                "\n" + "="*70 + "\n"
+                "❌ API KEY NOT SET!\n"
+                "\nTo fix this, create a .env file in this directory with:\n"
+                "  LLM_API_KEY=your-api-key-here\n"
+                "\nGet your API key from:\n"
+                "  • OpenRouter: https://openrouter.ai/ (supports multiple models)\n"
+                "  • DeepSeek: https://platform.deepseek.com/ (direct DeepSeek API)\n"
+                "\nOr set the environment variable LLM_API_KEY\n"
+                + "="*70
+            )
         
         _client_instance = OpenAI(
             base_url=LLM_CONFIG['base_url'],
