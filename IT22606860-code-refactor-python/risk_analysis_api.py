@@ -202,14 +202,18 @@ Risk score calculation guidelines:
 - 61-100: High risk - Avoid or heavily test before applying
 
 Consider these risk factors:
-1. Side effects - Does the refactor introduce unintended side effects?
-2. Readability - Is the refactored code easier or harder to read?
-3. Performance - Will performance improve or degrade?
-4. Maintainability - Is the code easier to maintain?
-5. Functionality - Does functionality remain exactly the same?
-6. Language idiomaticity - Does it follow language best practices?
-7. Complexity - Does it reduce or increase complexity?
-8. Error handling - How does it affect error handling?
+1. Security vulnerabilities - Does the refactor introduce or remove security issues (SQL injection, XSS, command injection, unsafe deserialization, hardcoded credentials)?
+2. Side effects - Does the refactor introduce unintended side effects?
+3. Readability - Is the refactored code easier or harder to read?
+4. Performance - Will performance improve or degrade?
+5. Maintainability - Is the code easier to maintain?
+6. Functionality - Does functionality remain exactly the same?
+7. Language idiomaticity - Does it follow language best practices?
+8. Complexity - Does it reduce or increase complexity?
+9. Error handling - How does it affect error handling?
+10. Data validation - Are inputs and outputs properly validated?
+
+IMPORTANT: If you identify security issues, include them as risk factors with descriptive names like "Security: SQL Injection Risk" or "Security: Unsafe eval() usage" so they can be extracted and tracked separately.
 
 Return ONLY the JSON object, no additional text."""
 

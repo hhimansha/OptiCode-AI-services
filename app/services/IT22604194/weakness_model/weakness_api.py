@@ -131,18 +131,22 @@ def has_real_recursion(code_text: str) -> bool:
     except SyntaxError:
         return False
 
-    function_names = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            function_names.add(node.name)
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id in function_names:
+        func_name = node.name
+
+        # Only check calls INSIDE this function's body
+        for child in ast.walk(node):
+            if (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id == func_name
+            ):
                 return True
 
     return False
-
 
 def check_hardcoded(code_text: str, expected_output: str) -> bool:
     if not expected_output or not expected_output.strip():

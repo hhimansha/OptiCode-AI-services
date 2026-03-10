@@ -30,7 +30,7 @@ LLM_CONFIG = {
     # Option 2: Direct DeepSeek API - Get key at https://platform.deepseek.com/
     'api_key': os.getenv(
         'LLM_API_KEY',  # Use LLM_API_KEY for both OpenRouter and DeepSeek
-        os.getenv('OPENROUTER_API_KEY', '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')  # Fallback to hardcoded key
+        os.getenv('OPENROUTER_API_KEY', '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')  # Fallback to hardcoded key
     ),
     
     # ── API Base URL ─────────────────────────────────────────────
